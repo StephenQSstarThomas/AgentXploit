@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "injection-agent"
+version = "0.1.0"
+description = "AI injection vulnerability analysis agent using Google ADK"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.12"
+authors = [
+    { name = "Shi Qiu", email = "stephenqius@gmail.com" },
+    { name = "Zhun Wang", email = "zhun.wang@berkeley.edu" }
+]
+dependencies = [
+    "google-adk==1.0.0",
+    "litellm==1.74.3",
+    "python-dotenv==1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.1",
+    "pytest-asyncio==1.1.0",
+    "pytest-cov==6.1.0",
+    "ruff==0.12.4",
+    "mypy==1.17.0",
+]
+
+[project.scripts]
+injection-agent = "injection_agent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/StephenQSstarThomas/injection_agent"
+Repository = "https://github.com/StephenQSstarThomas/injection_agent"
+Issues = "https://github.com/StephenQSstarThomas/injection_agent/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+injection_agent = ["py.typed"]
+
+[tool.ruff]
+select = ["E", "F", "B", "I", "N", "UP", "S", "A", "C4", "DTZ", "T10", "ISC"]
+ignore = ["E501"]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint.isort]
+known-first-party = ["injection_agent"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
