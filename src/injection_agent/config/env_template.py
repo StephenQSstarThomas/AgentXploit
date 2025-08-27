@@ -23,8 +23,13 @@ ENV_TEMPLATE = """# Injection Agent Configuration
 # OpenAI API Configuration
 OPENAI_API_KEY=your_openai_api_key_here
 
-# Default Model Configuration
+# Model Configuration per Agent
+# Each agent can have its own model for optimal performance and cost efficiency
 DEFAULT_MODEL=openai/gpt-4o
+ROOT_AGENT_MODEL=openai/gpt-4o          # Orchestrator agent - requires strong reasoning
+ANALYSIS_AGENT_MODEL=openai/gpt-4o-mini  # Static analysis agent - can use lighter model
+INJECTION_AGENT_MODEL=openai/gpt-4o      # Injection agent - requires creative capabilities
+LLM_HELPER_MODEL=openai/gpt-4o-mini      # Helper utilities - lightweight model sufficient
 
 # Directory Paths
 TRAJECTORIES_DIR=./trajectories
@@ -67,10 +72,10 @@ def create_env_file():
         print(f"Creating .env file at: {env_file}")
         with open(env_file, 'w') as f:
             f.write(ENV_TEMPLATE)
-        print("✅ .env file created successfully!")
-        print("📝 Please edit .env file to set your OpenAI API key and other settings.")
+        print(".env file created successfully!")
+        print("Please edit .env file to set your OpenAI API key and other settings.")
     else:
-        print(f"✅ .env file already exists at: {env_file}")
+        print(f".env file already exists at: {env_file}")
 
 if __name__ == "__main__":
     create_env_file()

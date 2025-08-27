@@ -16,13 +16,16 @@
 from .smart_analyzer import Analyzer
 
 # Core components
-from .core import CoreTools, AnalysisContext, Task, TaskQueue, ExecutionLogger
+from .core.core_tools import EnhancedFileReader
+from .core.analysis_context import AnalysisContext
+from .core.task import Task
+from .core.task_queue import TaskQueue
+from .core.execution_logger import ExecutionLogger
 
 # Specialized components
-from .analyzers import SecurityAnalyzer, PatternDetector, DataflowTracker, CallChainTracer
-from .planners import AnalysisContextManager
-from .executors import ToolExecutor
-from .ai import LLMHelper
+from .analyzers.security_analyzer import SecurityAnalyzer
+from .planning.analysis_context_manager import AnalysisContextManager
+from .code_analysis.llm_decider import LLMHelper
 
 # Injection-specific tools - import with error handling
 try:
@@ -42,33 +45,21 @@ except ImportError:
     scan_directory = None
     SWEReXTool = None
 
-try:
-    from .output import save_analysis_results
-except ImportError:
-    save_analysis_results = None
-
-try:
-    from .executors import batch_process_trajectories
-except ImportError:
-    batch_process_trajectories = None
+# Note: output and executors folders have been removed as redundant
 
 # Main exports - always available
 __all__ = [
     # Main analyzer
     'Analyzer',
-    # Core components  
-    'CoreTools',
+    # Core components
+    'EnhancedFileReader',
     'AnalysisContext',
     'Task',
     'TaskQueue',
     'ExecutionLogger',
     # Specialized components
     'SecurityAnalyzer',
-    'PatternDetector',
-    'DataflowTracker',
-    'CallChainTracer',
     'AnalysisContextManager',
-    'ToolExecutor',
     'LLMHelper',
 ]
 
@@ -84,19 +75,24 @@ if scan_file is not None:
     _available_injection.extend(['scan_file', 'scan_directory'])
 if SWEReXTool is not None:
     _available_injection.append('SWEReXTool')
-if save_analysis_results is not None:
-    _available_injection.append('save_analysis_results')
-if batch_process_trajectories is not None:
-    _available_injection.append('batch_process_trajectories')
+# Removed references to deleted modules
 
 __all__.extend(_available_injection)
 
 # Backwards compatibility - provide smart_agent_analyze using new analyzer
-def smart_agent_analyze(repo_path: str, max_steps: int = 40, tool_context=None):
+def smart_agent_analyze(repo_path: str, max_steps: int = None, tool_context=None):
     """
     Backwards compatibility function for legacy smart_agent_analyze
     Now uses the new streamlined analyzer
     """
+    # Get max_steps from settings if not provided
+    if max_steps is None:
+        try:
+            from ..config import settings
+            max_steps = getattr(settings, 'MAX_STEPS', 50)
+        except:
+            max_steps = 50
+
     analyzer = Analyzer(repo_path)
     return analyzer.analyze(max_steps=max_steps, save_results=True, focus="security")
 

@@ -73,9 +73,16 @@ def analyze_and_inject_trajectory(
     """
     
     try:
+        # Get model from settings
+        try:
+            from ..config import settings
+            model_name = settings.DEFAULT_MODEL
+        except:
+            model_name = "openai/gpt-4o"
+
         # Initialize the analyzer
         analyzer = UnifiedInjectionAnalyzer(
-            model="openai/gpt-4o",
+            model=model_name,
             command_type=command_type,
             custom_command=custom_command,
             injection_strategy=injection_strategy
@@ -175,12 +182,20 @@ Results:
 class UnifiedInjectionAnalyzer:
     """Embedded version of the UnifiedInjectionAnalyzer for ADK integration"""
     
-    def __init__(self, 
-                 model: str = "openai/gpt-4o",
+    def __init__(self,
+                 model: str = None,
                  command_type: str = "pkill",
                  custom_command: Optional[str] = None,
                  injection_strategy: str = "technical"):
         """Initialize the unified analyzer"""
+
+        # Get model from settings if not provided
+        if model is None:
+            try:
+                from ..config import settings
+                model = settings.DEFAULT_MODEL
+            except:
+                model = "openai/gpt-4o"
         try:
             from ...enums import CommandType, InjectionStrategy
         except ImportError:
@@ -419,11 +434,11 @@ Return ONLY a JSON object with this format:
 
 def analyze_repository_and_inject(
     repo_path: str,
-    max_files_to_read: int = 150,
+    max_files_to_read: int = None,
     command_type: str = "pkill",
     injection_strategy: str = "technical",
     custom_command: Optional[str] = None,
-    output_dir: str = "./analysis",
+    output_dir: str = None,
     tool_context: Optional[ToolContext] = None
 ) -> str:
     """
@@ -444,10 +459,26 @@ def analyze_repository_and_inject(
     Returns:
         Path to the generated comprehensive analysis report
     """
-    
+
+    # Get defaults from settings if not provided
+    if max_files_to_read is None:
+        try:
+            from ..config import settings
+            max_files_to_read = getattr(settings, 'MAX_FILES', 50)
+        except:
+            max_files_to_read = 50
+
+    if output_dir is None:
+        try:
+            from ..config import settings
+            output_dir = settings.ANALYSIS_DIR
+        except:
+            output_dir = "./analysis"
+
     try:
         logger.info(f"Starting comprehensive analysis of repository: {repo_path}")
-        
+        logger.info(f"Using max_files_to_read: {max_files_to_read}, output_dir: {output_dir}")
+
         # Step 1: Perform static analysis using smart agent
         logger.info("Step 1: Performing smart 4-phase analysis...")
         analyzer = Analyzer(repo_path)
@@ -501,8 +532,8 @@ def analyze_repository_and_inject(
 
 def static_analyze_repository(
     repo_path: str,
-    max_files_to_read: int = 150,
-    output_dir: str = "./analysis",
+    max_files_to_read: int = None,
+    output_dir: str = None,
     tool_context: Optional[ToolContext] = None,
     use_intelligent_mode: bool = True
 ) -> str:
@@ -522,9 +553,25 @@ def static_analyze_repository(
     Returns:
         Path to the generated static analysis report
     """
-    
+
+    # Get defaults from settings if not provided
+    if max_files_to_read is None:
+        try:
+            from ..config import settings
+            max_files_to_read = getattr(settings, 'MAX_FILES', 50)
+        except:
+            max_files_to_read = 50
+
+    if output_dir is None:
+        try:
+            from ..config import settings
+            output_dir = settings.ANALYSIS_DIR
+        except:
+            output_dir = "./analysis"
+
     try:
         logger.info(f"Starting static analysis of repository: {repo_path}")
+        logger.info(f"Using max_files_to_read: {max_files_to_read}, output_dir: {output_dir}")
         
         if use_intelligent_mode:
             # Use smart agent analysis (improved version)
@@ -607,8 +654,15 @@ Focus on practical, implementable attack strategies based on the agent's actual 
 """
     
     try:
+        # Get model from settings
+        try:
+            from ..config import settings
+            model_name = settings.DEFAULT_MODEL
+        except:
+            model_name = "openai/gpt-4o"
+
         response = completion(
-            model="openai/gpt-4o",
+            model=model_name,
             messages=[{"role": "user", "content": injection_prompt}],
             max_tokens=3000,
             temperature=0.2

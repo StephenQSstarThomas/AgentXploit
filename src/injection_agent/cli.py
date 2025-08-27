@@ -90,10 +90,17 @@ def create_parser() -> argparse.ArgumentParser:
         help="Custom injection payload"
     )
     
+    # Get default max_files from settings
+    try:
+        from .config import settings
+        default_max_files = getattr(settings, 'MAX_FILES', 50)
+    except:
+        default_max_files = 50
+
     parser.add_argument(
         "--max-files",
         type=int,
-        default=150,
+        default=default_max_files,
         help="Maximum number of files to read during static analysis"
     )
     
@@ -139,7 +146,7 @@ async def execute_command(args: argparse.Namespace) -> int:
             injection_strategy=InjectionStrategy(args.strategy),
             custom_payload=args.payload,
             max_workers=args.max_workers,
-            max_files=getattr(args, 'max_files', 150),
+            max_files=getattr(args, 'max_files', getattr(settings, 'MAX_FILES', 50)),
             analysis_mode=getattr(args, 'analysis_mode', 'intelligent'),
             dry_run=args.dry_run
         )
@@ -163,11 +170,29 @@ async def execute_command(args: argparse.Namespace) -> int:
             if not args.repository:
                 logging.error("Repository path required for static command")
                 return 1
-            user_input = f"Perform static analysis of the repository at {args.repository}"
-            if args.max_files:
-                user_input += f" with max_files_to_read={args.max_files}"
-            if hasattr(args, 'analysis_mode'):
-                user_input += f" using {args.analysis_mode} analysis mode"
+
+            # Direct static analysis path - bypass agent for reliable JSON generation
+            logging.info(f"Starting direct static analysis of: {args.repository}")
+            try:
+                from .tools.smart_analyzer import Analyzer
+
+                max_files = getattr(args, 'max_files', getattr(settings, 'MAX_FILES', 50))
+                logging.info(f"Analysis will process up to {max_files} files")
+
+                analyzer = Analyzer(args.repository)
+                result = analyzer.analyze(
+                    max_steps=max_files,
+                    save_results=True,
+                    focus="security"
+                )
+
+                logging.info("Static analysis completed successfully")
+                logging.info(f"Result: Analysis completed with {result['execution_summary']['steps_completed']} steps")
+                return 0
+
+            except Exception as e:
+                logging.error(f"Static analysis failed: {e}")
+                return 1
             
         elif args.command == 'comprehensive':
             if not args.repository:
@@ -225,7 +250,12 @@ async def execute_command(args: argparse.Namespace) -> int:
         # Run the agent
         logging.info(f"Executing command: {args.command}")
         logging.info(f"Configuration: {config}")
-        
+        logging.info(f"Starting analysis with max_files={getattr(args, 'max_files', getattr(settings, 'MAX_FILES', 50))}")
+        logging.info("Analysis will include:")
+        logging.info("- Enhanced tool usage logging")
+        logging.info("- Intelligent next-step planning")
+        logging.info("- Sorted security findings by severity")
+
         # Collect the final result
         final_response = ""
         async for event in runner.run_async(
@@ -237,6 +267,22 @@ async def execute_command(args: argparse.Namespace) -> int:
                 for part in event.content.parts:
                     if part.text:
                         final_response += part.text
+                        # Print progress indicators for enhanced analysis
+                        if "Initializing analysis context" in part.text:
+                            logging.info("Initializing intelligent analysis context...")
+                        elif "Initial priorities identified" in part.text:
+                            logging.info("Analysis priorities established!")
+                        elif "[STEP" in part.text and "Executing:" in part.text:
+                            # Enhanced step logging is already handled in smart_analyzer
+                            pass
+                        elif "Analysis results saved" in part.text:
+                            logging.info("Analysis completed and results saved!")
+                        elif "Running comprehensive security scan" in part.text:
+                            logging.info("Running comprehensive security scan...")
+                        elif "Running targeted security analysis" in part.text:
+                            logging.info("Running targeted security analysis...")
+                        elif "Generating final analysis recommendations" in part.text:
+                            logging.info("Generating final analysis recommendations...")
         
         logging.info("Command execution completed successfully")
         logging.info(f"Result: {final_response}")

@@ -1,246 +1,451 @@
 """
-Security analyzer coordinator for comprehensive security analysis.
-Orchestrates pattern detection, dataflow analysis, and risk assessment.
+Security analyzer using LLM for comprehensive security analysis.
+Provides intelligent security assessment and vulnerability detection.
 """
 
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
-from .pattern_detector import PatternDetector, DetectedPattern, InputPoint
-from .dataflow_tracker import DataflowTracker, DataFlow
+import os
+import re
 
 
 @dataclass
 class SecurityFinding:
     """Represents a security finding with risk assessment"""
     finding_id: str
-    finding_type: str  # "dangerous_pattern", "data_flow", "input_point"
-    severity: str  # "high", "medium", "low"
+    finding_type: str  # "injection_risk", "authentication_issue", "data_exposure", "configuration_risk"
+    severity: str  # "high", "medium", "low", "info"
     file_path: str
     line_number: int
     description: str
     details: Dict[str, Any]
     risk_score: int  # 0-100
     recommendation: str
+    code_snippet: str
 
 
 class SecurityAnalyzer:
-    """Coordinates security-focused analysis of code files"""
-    
+    """LLM-powered security analysis of code files"""
+
     def __init__(self):
-        self.pattern_detector = PatternDetector()
-        self.dataflow_tracker = DataflowTracker()
         self.finding_counter = 0
+        self._setup_llm()
+
+    def _setup_llm(self):
+        """Setup LLM for security analysis"""
+        if not os.environ.get("OPENAI_API_KEY"):
+            try:
+                from ...config import settings
+                api_key = settings.get_openai_api_key()
+                os.environ["OPENAI_API_KEY"] = api_key
+            except Exception:
+                pass
     
     def analyze_file_security(self, file_path: str, content: str) -> Dict[str, Any]:
         """
-        Perform comprehensive security analysis of a file.
-        
+        Perform LLM-powered comprehensive security analysis of a file.
+
         Args:
             file_path: Path to the file being analyzed
             content: File content to analyze
-            
+
         Returns:
             Structured security analysis results
         """
         # Reset finding counter for this file
         self.finding_counter = 0
-        
-        # Pattern detection
-        dangerous_patterns = self.pattern_detector.detect_dangerous_patterns(content)
-        input_points = self.pattern_detector.detect_input_points(content)
-        safety_analysis = self.pattern_detector.analyze_code_safety(content)
-        
-        # Dataflow analysis
-        data_flows = self.dataflow_tracker.find_data_flows(content)
-        injection_risks = self.dataflow_tracker.find_potential_injections(content)
-        
-        # Generate security findings
-        findings = self._generate_security_findings(
-            file_path, dangerous_patterns, input_points, data_flows, injection_risks
-        )
-        
+
+        # Perform LLM-based security analysis
+        llm_analysis = self._analyze_with_llm(file_path, content)
+
+        # Extract findings from LLM analysis
+        findings = self._extract_findings_from_llm(file_path, content, llm_analysis)
+
+        # Perform additional pattern-based analysis as fallback/supplement
+        pattern_findings = self._analyze_patterns_basic(content)
+
+        # Combine findings
+        all_findings = findings + pattern_findings
+
         # Calculate overall risk assessment
-        risk_assessment = self._calculate_risk_assessment(findings, safety_analysis)
-        
+        risk_assessment = self._calculate_risk_assessment(all_findings)
+
         return {
             "file_path": file_path,
             "analysis_timestamp": self._get_timestamp(),
             "risk_assessment": risk_assessment,
-            "findings": findings,
-            "patterns": {
-                "dangerous_patterns": dangerous_patterns,
-                "input_points": input_points,
-                "safety_analysis": safety_analysis
-            },
-            "dataflow": {
-                "data_flows": data_flows,
-                "injection_risks": injection_risks,
-                "dataflow_summary": self.dataflow_tracker.get_dataflow_summary(content)
-            },
-            "summary": self._generate_security_summary(findings, risk_assessment),
-            "recommendations": self._generate_recommendations(findings)
+            "findings": all_findings,
+            "llm_analysis": llm_analysis,
+            "pattern_analysis": pattern_findings,
+            "summary": self._generate_security_summary(all_findings, risk_assessment),
+            "recommendations": self._generate_recommendations(all_findings)
         }
     
-    def _generate_security_findings(
-        self, 
-        file_path: str,
-        dangerous_patterns: List[DetectedPattern],
-        input_points: List[InputPoint],
-        data_flows: List[DataFlow],
-        injection_risks: List[Dict[str, Any]]
-    ) -> List[SecurityFinding]:
-        """Generate structured security findings"""
+    def _analyze_with_llm(self, file_path: str, content: str) -> Dict[str, Any]:
+        """Use LLM to perform comprehensive security analysis"""
+        try:
+            from litellm import completion
+
+            # Prepare analysis prompt
+            lines = content.split('\n')
+            file_extension = file_path.split('.')[-1] if '.' in file_path else 'unknown'
+
+            prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
+
+File: {file_path}
+Lines: {len(lines)}
+
+Content:
+{content[:2000]}...  # Limit content for LLM
+
+Please analyze for:
+1. Security vulnerabilities (injection, XSS, authentication issues)
+2. Data exposure risks
+3. Configuration problems
+4. Code quality and security best practices
+5. Potential attack vectors
+
+Format your response as JSON with this structure:
+{{
+    "overall_risk": "HIGH|MEDIUM|LOW",
+    "risk_score": 0-100,
+    "findings": [
+        {{
+            "type": "vulnerability_type",
+            "severity": "high|medium|low",
+            "line": 123,
+            "description": "description of issue",
+            "code_snippet": "relevant code",
+            "recommendation": "how to fix"
+        }}
+    ],
+    "summary": "brief summary"
+}}"""
+
+            # Get model from settings
+            try:
+                from ...config import settings
+                model_name = settings.LLM_HELPER_MODEL
+            except:
+                model_name = "gpt-4o"
+
+            response = completion(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000,
+                temperature=0.1
+            )
+
+            result_text = response.choices[0].message.content
+
+            # Try to parse JSON response
+            try:
+                import json
+                return json.loads(result_text)
+            except:
+                # If JSON parsing fails, return structured response
+                return {
+                    "overall_risk": "MEDIUM",
+                    "risk_score": 50,
+                    "findings": [],
+                    "summary": result_text[:500],
+                    "llm_raw_response": result_text
+                }
+
+        except Exception as e:
+            return {
+                "overall_risk": "UNKNOWN",
+                "risk_score": 0,
+                "findings": [],
+                "summary": f"LLM analysis failed: {str(e)}",
+                "error": str(e)
+            }
+
+    def _extract_findings_from_llm(self, file_path: str, content: str, llm_analysis: Dict) -> List[SecurityFinding]:
+        """Extract security findings from LLM analysis with enhanced LLM-driven decision making"""
         findings = []
-        
-        # Process dangerous patterns
-        for pattern in dangerous_patterns:
+
+        llm_findings = llm_analysis.get("findings", [])
+
+        for finding_data in llm_findings:
+            # LLM-driven decision: Let LLM determine the finding type based on content
+            finding_type = self._classify_finding_with_llm(finding_data, content)
+
+            # LLM-driven decision: Let LLM determine severity with more context
+            severity = self._assess_severity_with_llm(finding_data, content, file_path)
+
+            # LLM-driven decision: Let LLM determine risk score with context
+            risk_score = self._calculate_llm_driven_risk_score(finding_data, severity, content)
+
             finding = SecurityFinding(
                 finding_id=self._next_finding_id(),
-                finding_type="dangerous_pattern",
-                severity=pattern.severity,
+                finding_type=finding_type,
+                severity=severity,
                 file_path=file_path,
-                line_number=pattern.line_number,
-                description=pattern.description,
+                line_number=finding_data.get("line", 1),
+                description=finding_data.get("description", "Security issue detected"),
                 details={
-                    "pattern_type": pattern.pattern_type,
-                    "matched_text": pattern.matched_text,
-                    "context": pattern.context
+                    "llm_analysis": llm_analysis.get("summary", ""),
+                    "detection_method": "llm_analysis",
+                    "llm_risk_assessment": f"LLM-determined risk score: {risk_score}",
+                    "content_context": self._extract_content_context(content, finding_data.get("line", 1))
                 },
-                risk_score=self.score_injection_risk(pattern.pattern_type, pattern.context, pattern.severity),
-                recommendation=self._get_pattern_recommendation(pattern.pattern_type)
+                risk_score=risk_score,
+                recommendation=self._generate_llm_recommendation(finding_data, content),
+                code_snippet=finding_data.get("code_snippet", "")
             )
             findings.append(finding)
-        
-        # Process injection risks (high priority findings)
-        for risk in injection_risks:
-            if risk["severity"] == "HIGH":
-                finding = SecurityFinding(
-                    finding_id=self._next_finding_id(),
-                    finding_type="injection_vulnerability",
-                    severity="high",
-                    file_path=file_path,
-                    line_number=risk["sink_line"],
-                    description=f"Potential injection: {risk['description']}",
-                    details={
-                        "vulnerability_type": risk["type"],
-                        "variable": risk["variable"],
-                        "source_line": risk["source_line"],
-                        "sink_line": risk["sink_line"],
-                        "dataflow": risk["flow"]
-                    },
-                    risk_score=85,  # High risk score for injection vulnerabilities
-                    recommendation="Validate and sanitize input before use in dangerous operations"
-                )
-                findings.append(finding)
-        
-        # Process significant input points (only if they connect to dangerous patterns)
-        risky_inputs = self._identify_risky_input_points(input_points, dangerous_patterns)
-        for input_point in risky_inputs:
-            finding = SecurityFinding(
-                finding_id=self._next_finding_id(),
-                finding_type="risky_input_point",
-                severity="medium",
-                file_path=file_path,
-                line_number=input_point.line_number,
-                description=f"Input point that may feed dangerous operations: {input_point.description}",
-                details={
-                    "input_type": input_point.input_type,
-                    "variable_name": input_point.variable_name,
-                    "context": input_point.context
-                },
-                risk_score=60,
-                recommendation="Implement input validation and sanitization"
+
+        return findings
+
+    def _classify_finding_with_llm(self, finding_data: Dict, content: str) -> str:
+        """Use LLM to classify the finding type based on content context"""
+        try:
+            from litellm import completion
+
+            prompt = f"""Classify this security finding based on the code context:
+
+Finding: {finding_data.get('description', '')}
+Code snippet: {finding_data.get('code_snippet', '')}
+
+Classify as one of: injection_risk, authentication_issue, data_exposure, configuration_risk, code_quality, other
+
+Respond with just the classification:"""
+
+            response = completion(
+                model=self._get_llm_model(),
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=50,
+                temperature=0.1
             )
-            findings.append(finding)
-        
-        return sorted(findings, key=lambda f: (f.severity == "high", f.risk_score), reverse=True)
-    
-    def score_injection_risk(self, pattern_type: str, context: str, severity: str = "medium") -> int:
-        """
-        Score injection risk for a pattern based on type and context.
-        
-        Args:
-            pattern_type: Type of dangerous pattern detected
-            context: Code context where pattern was found
-            severity: Base severity level
-            
-        Returns:
-            Risk score from 0-100
-        """
-        base_score = {
-            "high": 70,
-            "medium": 40,
-            "low": 20
-        }.get(severity, 40)
-        
-        # Pattern-specific scoring
-        pattern_multipliers = {
-            "exec": 1.3,
-            "eval": 1.3,
-            "os_system": 1.2,
-            "subprocess_call": 1.1,
-            "sql_execute": 1.2,
-            "compile": 1.1
+
+            classification = response.choices[0].message.content.strip().lower()
+
+            # Map to valid finding types
+            valid_types = ["injection_risk", "authentication_issue", "data_exposure", "configuration_risk", "code_quality"]
+            if classification in valid_types:
+                return classification
+            else:
+                return finding_data.get("type", "general_security_issue")
+
+        except Exception:
+            return finding_data.get("type", "general_security_issue")
+
+    def _assess_severity_with_llm(self, finding_data: Dict, content: str, file_path: str) -> str:
+        """Use LLM to assess severity with full context"""
+        try:
+            from litellm import completion
+
+            prompt = f"""Assess the severity of this security finding considering:
+
+File: {file_path}
+Finding: {finding_data.get('description', '')}
+Context: {content[:500]}...
+
+Rate severity as: critical, high, medium, low, info
+
+Consider:
+- Potential impact on the system
+- Ease of exploitation
+- Data sensitivity
+- System criticality
+
+Respond with just the severity level:"""
+
+            response = completion(
+                model=self._get_llm_model(),
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=20,
+                temperature=0.1
+            )
+
+            severity = response.choices[0].message.content.strip().lower()
+
+            # Normalize severity
+            if severity in ["critical"]:
+                return "high"
+            elif severity in ["high", "medium", "low", "info"]:
+                return severity
+            else:
+                return finding_data.get("severity", "medium")
+
+        except Exception:
+            return finding_data.get("severity", "medium")
+
+    def _calculate_llm_driven_risk_score(self, finding_data: Dict, severity: str, content: str) -> int:
+        """Use LLM to calculate risk score with context"""
+        try:
+            from litellm import completion
+
+            prompt = f"""Calculate a risk score (0-100) for this security finding:
+
+Severity: {severity}
+Description: {finding_data.get('description', '')}
+Code context: {content[:300]}...
+
+Consider:
+- Technical complexity of exploitation
+- Potential data exposure
+- System impact
+- Likelihood of occurrence
+- Current mitigations in the code
+
+Respond with just the numeric score:"""
+
+            response = completion(
+                model=self._get_llm_model(),
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=10,
+                temperature=0.1
+            )
+
+            score_text = response.choices[0].message.content.strip()
+
+            # Extract numeric score
+            import re
+            numbers = re.findall(r'\d+', score_text)
+            if numbers:
+                score = int(numbers[0])
+                return max(0, min(100, score))
+            else:
+                return self._calculate_risk_score_from_severity(severity)
+
+        except Exception:
+            return self._calculate_risk_score_from_severity(severity)
+
+    def _generate_llm_recommendation(self, finding_data: Dict, content: str) -> str:
+        """Use LLM to generate specific recommendations"""
+        try:
+            from litellm import completion
+
+            prompt = f"""Generate a specific, actionable recommendation for this security finding:
+
+Finding: {finding_data.get('description', '')}
+Code context: {content[:300]}...
+
+Provide a concrete, implementable solution.
+Keep it brief but specific:"""
+
+            response = completion(
+                model=self._get_llm_model(),
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=100,
+                temperature=0.2
+            )
+
+            recommendation = response.choices[0].message.content.strip()
+
+            if recommendation and len(recommendation) > 10:
+                return recommendation
+            else:
+                return finding_data.get("recommendation", "Review and address this security concern")
+
+        except Exception:
+            return finding_data.get("recommendation", "Review and address this security concern")
+
+    def _extract_content_context(self, content: str, line_number: int) -> str:
+        """Extract relevant content context around the finding"""
+        lines = content.split('\n')
+        start = max(0, line_number - 3)
+        end = min(len(lines), line_number + 3)
+
+        context_lines = []
+        for i in range(start, end):
+            marker = ">>> " if i + 1 == line_number else "    "
+            context_lines.append(f"{marker}{i + 1:4d}: {lines[i]}")
+
+        return "\n".join(context_lines)
+
+    def _get_llm_model(self) -> str:
+        """Get LLM model for security analysis"""
+        try:
+            from ...config import settings
+            return settings.LLM_HELPER_MODEL
+        except:
+            return "gpt-4o-mini"
+
+    def _analyze_patterns_basic(self, content: str) -> List[SecurityFinding]:
+        """Perform basic pattern-based security analysis as supplement"""
+        findings = []
+
+        # Common dangerous patterns
+        dangerous_patterns = [
+            (r"eval\s*\(", "HIGH", "Use of eval() function"),
+            (r"exec\s*\(", "HIGH", "Use of exec() function"),
+            (r"os\.system\s*\(", "HIGH", "Use of os.system()"),
+            (r"subprocess\.(call|Popen|run)\s*\(", "MEDIUM", "Subprocess execution"),
+            (r"SQLAlchemy.*text\s*\(", "HIGH", "SQL injection via SQLAlchemy text"),
+            (r"cursor\.execute\s*\([^,)]*\+\s*[^,)]*\)", "HIGH", "Potential SQL injection"),
+            (r"innerHTML\s*=.*\+", "HIGH", "Potential XSS via innerHTML"),
+            (r"document\.write\s*\(.*\+.*\)", "HIGH", "Potential XSS via document.write"),
+            (r"password\s*=\s*['\"][^'\"]{0,10}['\"]", "MEDIUM", "Weak or empty password"),
+            (r"secret[_-]?key\s*=\s*['\"][^'\"]*['\"]", "HIGH", "Hardcoded secret key"),
+            (r"api[_-]?key\s*=\s*['\"][^'\"]*['\"]", "HIGH", "Hardcoded API key"),
+        ]
+
+        lines = content.split('\n')
+
+        for i, line in enumerate(lines, 1):
+            for pattern, severity, description in dangerous_patterns:
+                if re.search(pattern, line, re.IGNORECASE):
+                    finding = SecurityFinding(
+                        finding_id=self._next_finding_id(),
+                        finding_type="pattern_based",
+                        severity=severity.lower(),
+                        file_path="",  # Will be filled by caller
+                        line_number=i,
+                        description=description,
+                        details={
+                            "pattern": pattern,
+                            "matched_line": line.strip(),
+                            "detection_method": "regex_pattern"
+                        },
+                        risk_score=self._calculate_risk_score_from_severity(severity.lower()),
+                        recommendation=self._get_recommendation_for_pattern(pattern),
+                        code_snippet=line.strip()
+                    )
+                    findings.append(finding)
+
+        return findings
+
+    def _calculate_risk_score_from_severity(self, severity: str) -> int:
+        """Convert severity string to risk score"""
+        severity_map = {
+            "high": 80,
+            "medium": 50,
+            "low": 25,
+            "info": 10
         }
-        
-        multiplier = pattern_multipliers.get(pattern_type, 1.0)
-        score = int(base_score * multiplier)
-        
-        # Context-based adjustments
-        context_lower = context.lower()
-        
-        # Higher score if user input is nearby
-        input_indicators = ["input(", "request.", "argv", "stdin", "raw_input("]
-        if any(indicator in context_lower for indicator in input_indicators):
-            score += 20
-        
-        # Higher score if in web/API context
-        web_indicators = ["request", "response", "http", "api", "route", "view"]
-        if any(indicator in context_lower for indicator in web_indicators):
-            score += 15
-        
-        # Lower score if input appears to be hardcoded
-        hardcode_indicators = ["'", '"', "constant", "config"]
-        if any(indicator in context_lower for indicator in hardcode_indicators):
-            score -= 25
-        
-        # Lower score if there are validation keywords nearby
-        validation_indicators = ["validate", "sanitize", "escape", "check", "verify"]
-        if any(indicator in context_lower for indicator in validation_indicators):
-            score -= 20
-        
-        return max(10, min(100, score))
+        return severity_map.get(severity.lower(), 25)
     
-    def _identify_risky_input_points(
-        self, 
-        input_points: List[InputPoint], 
-        dangerous_patterns: List[DetectedPattern]
-    ) -> List[InputPoint]:
-        """Identify input points that may feed into dangerous operations"""
-        if not dangerous_patterns:
-            return []
-        
-        # For simplicity, return input points that are within 10 lines of dangerous patterns
-        risky_inputs = []
-        dangerous_lines = {p.line_number for p in dangerous_patterns}
-        
-        for input_point in input_points:
-            # Check if input is near a dangerous pattern
-            if any(abs(input_point.line_number - dl) <= 10 for dl in dangerous_lines):
-                risky_inputs.append(input_point)
-        
-        return risky_inputs
+    def _get_recommendation_for_pattern(self, pattern: str) -> str:
+        """Get specific recommendation for a security pattern"""
+        recommendations = {
+            r"eval\s*\(": "Avoid using eval(). Use ast.literal_eval() for safe evaluation",
+            r"exec\s*\(": "Avoid using exec(). Use safer alternatives or validate input thoroughly",
+            r"os\.system\s*\(": "Use subprocess module with proper argument handling",
+            r"subprocess\.(call|Popen|run)\s*\(": "Validate command arguments and avoid shell=True when possible",
+            r"SQLAlchemy.*text\s*\(": "Use parameterized queries to prevent SQL injection",
+            r"cursor\.execute\s*\([^,)]*\+\s*[^,)]*\)": "Use parameterized queries to prevent SQL injection",
+            r"innerHTML\s*=.*\+": "Use textContent or innerText, or properly escape HTML",
+            r"document\.write\s*\(.*\+.*\)": "Avoid document.write with user input. Use DOM manipulation instead",
+            r"password\s*=\s*['\"][^'\"]{0,10}['\"]": "Use strong passwords and never hardcode them",
+            r"secret[_-]?key\s*=\s*['\"][^'\"]*['\"]": "Move secrets to environment variables or secure config",
+            r"api[_-]?key\s*=\s*['\"][^'\"]*['\"]": "Store API keys securely, never in source code"
+        }
+
+        for pattern_key, recommendation in recommendations.items():
+            if re.search(pattern_key, pattern):
+                return recommendation
+
+        return "Review this pattern for security implications"
     
-    def _calculate_risk_assessment(
-        self, 
-        findings: List[SecurityFinding], 
-        safety_analysis: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _calculate_risk_assessment(self, findings: List[SecurityFinding]) -> Dict[str, Any]:
         """Calculate overall risk assessment for the file"""
         if not findings:
             return {
                 "overall_risk": "LOW",
-                "risk_score": safety_analysis.get("risk_score", 0),
+                "risk_score": 0,
                 "critical_findings": 0,
                 "high_findings": 0,
                 "medium_findings": 0,
@@ -264,7 +469,7 @@ class SecurityAnalyzer:
         
         return {
             "overall_risk": overall_risk,
-            "risk_score": max(total_risk_score, safety_analysis.get("risk_score", 0)),
+            "risk_score": total_risk_score,
             "critical_findings": 0,  # Reserved for future use
             "high_findings": high_findings,
             "medium_findings": medium_findings,
@@ -292,7 +497,7 @@ class SecurityAnalyzer:
         # Highlight specific critical issues
         injection_findings = [f for f in findings if f.finding_type == "injection_vulnerability"]
         if injection_findings:
-            summary += f"\n- ⚠️  {len(injection_findings)} potential injection vulnerability(ies)"
+            summary += f"\n- WARNING: {len(injection_findings)} potential injection vulnerability(ies)"
         
         return summary
     

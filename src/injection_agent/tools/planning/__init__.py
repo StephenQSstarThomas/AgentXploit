@@ -12,26 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .repository_analyzer import analyze_repository_static
-from .security_scanner import scan_directory_security
-from .call_graph_analyzer import analyze_call_graph
-from .dataflow_analyzer import track_dataflow
-from .pattern_analyzer import detect_patterns
 from .task_manager import (
     manage_analysis_tasks,
     create_analysis_todo,
     update_analysis_progress,
-    get_analysis_status
+    get_analysis_status,
+    create_comprehensive_analysis_plan
 )
+from .context_tools import (
+    initialize_analysis_context,
+    get_project_overview,
+    get_analysis_history,
+    get_security_summary,
+    update_todo_status,
+    get_current_todos,
+    get_next_suggestions,
+    record_analysis_result,
+    record_directory_structure,
+)
+from .analysis_context_manager import AnalysisContextManager
 
 __all__ = [
-    'analyze_repository_static',
-    'scan_directory_security',
-    'analyze_call_graph',
-    'track_dataflow',
-    'detect_patterns',
     'manage_analysis_tasks',
     'create_analysis_todo',
     'update_analysis_progress',
     'get_analysis_status',
+    'create_comprehensive_analysis_plan',
+    'initialize_analysis_context',
+    'get_project_overview',
+    'get_analysis_history',
+    'get_security_summary',
+    'update_todo_status',
+    'get_current_todos',
+    'get_next_suggestions',
+    'record_analysis_result',
+    'record_directory_structure',
+    'AnalysisContextManager'
 ]

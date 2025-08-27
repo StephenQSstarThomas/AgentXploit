@@ -7,7 +7,7 @@ import json
 from typing import Optional, Dict, Any, List
 from google.adk.tools import ToolContext
 
-from ..planners.analysis_context_manager import AnalysisContextManager
+from .analysis_context_manager import AnalysisContextManager
 
 # Global context manager instance (initialized per analysis session)
 _context_manager = None
@@ -211,14 +211,16 @@ def record_directory_structure(path: str, files: List[str], directories: List[st
     """Record discovered directory structure (agents can use this when exploring directories)"""
     if not _context_manager:
         return "ERROR: Analysis context not initialized"
-    
+
     structure_data = {
         "files": files,
         "directories": directories
     }
-    
+
     if additional_info:
         structure_data.update(additional_info)
-    
+
     _context_manager.update_project_structure(path, structure_data)
     return f"Recorded structure for {path} - {len(files)} files, {len(directories)} directories"
+
+

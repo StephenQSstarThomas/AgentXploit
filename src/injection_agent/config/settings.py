@@ -32,9 +32,9 @@ class CliConfig:
     output_path: Optional[str] = None
     injection_strategy: InjectionStrategy = InjectionStrategy.TECHNICAL
     custom_payload: Optional[str] = None
-    max_workers: int = 3
-    max_files: int = 200
-    analysis_mode: str = "intelligent" 
+    max_workers: int = None
+    max_files: int = None  # Will be set from settings
+    analysis_mode: str = "intelligent"
     dry_run: bool = False
     
 
@@ -82,9 +82,11 @@ class Settings:
     
     def _load_directory_config(self):
         """Load directory configuration"""
-        self.TRAJECTORIES_DIR = os.getenv("TRAJECTORIES_DIR", "./trajectories")
-        self.ANALYSIS_DIR = os.getenv("ANALYSIS_DIR", "./analysis")
-        self.INJECTED_DIR = os.getenv("INJECTED_DIR", "./injected")
+        # Get the absolute path to the project root
+        project_root = Path(__file__).parent.parent.parent.parent
+        self.TRAJECTORIES_DIR = os.getenv("TRAJECTORIES_DIR", str(project_root / "trajectories"))
+        self.ANALYSIS_DIR = os.getenv("ANALYSIS_DIR", str(project_root / "analysis"))
+        self.INJECTED_DIR = os.getenv("INJECTED_DIR", str(project_root / "injected"))
     
     def _load_command_config(self):
         """Load command configuration"""
@@ -115,8 +117,8 @@ class Settings:
     def _load_cli_defaults(self):
         """Load CLI default settings"""
         self.MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
-        self.MAX_FILES = int(os.getenv("MAX_FILES", "150"))
-        self.MAX_STEPS = int(os.getenv("MAX_STEPS", "150"))
+        self.MAX_FILES = int(os.getenv("MAX_FILES", "50"))
+        self.MAX_STEPS = int(os.getenv("MAX_STEPS", "50"))
         self.ANALYSIS_MODE = os.getenv("ANALYSIS_MODE", "intelligent")
     
     def get_openai_api_key(self) -> str:

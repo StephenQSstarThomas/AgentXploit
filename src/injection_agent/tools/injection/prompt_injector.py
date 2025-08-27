@@ -233,16 +233,16 @@ Injection Locations:
     # Add success analysis
     if success:
         summary += "Injection Assessment:\n"
-        summary += "✓ Command successfully embedded in content\n"
+        summary += "[SUCCESS] Command successfully embedded in content\n"
         if effectiveness >= 80:
-            summary += "✓ High effectiveness - injection appears natural and necessary\n"
+            summary += "[SUCCESS] High effectiveness - injection appears natural and necessary\n"
         elif effectiveness >= 50:
-            summary += "⚠ Medium effectiveness - injection present but may be detectable\n"
+            summary += "[WARNING] Medium effectiveness - injection present but may be detectable\n"
         else:
-            summary += "⚠ Low effectiveness - injection may appear suspicious\n"
+            summary += "[WARNING] Low effectiveness - injection may appear suspicious\n"
     else:
         summary += "Injection Assessment:\n"
-        summary += "✗ Command injection failed or not detected\n"
+        summary += "[FAILED] Command injection failed or not detected\n"
         summary += "Consider using different injection strategies or content modification\n"
     
     summary += "\nThis injection analysis is for security research and vulnerability demonstration purposes.\n"

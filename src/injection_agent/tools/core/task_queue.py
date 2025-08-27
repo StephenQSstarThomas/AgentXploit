@@ -10,22 +10,44 @@ from .task import Task, TaskStatus
 
 class TaskQueue:
     """Priority queue for analysis tasks, ordered by priority (higher = first)"""
-    
+
     def __init__(self):
         self._heap: List[tuple] = []  # (negative_priority, counter, task)
         self._tasks: Dict[str, Task] = {}  # task_id -> Task
+        self._target_tasks: Dict[str, Task] = {}  # target -> Task (for deduplication)
         self._counter = 0  # For stable sorting when priorities are equal
-    
+
     def add_task(self, task: Task) -> None:
-        """Add a task to the queue"""
+        """Add a task to the queue with target-based deduplication"""
         if task.task_id in self._tasks:
             return  # Task already exists
-        
+
+        # Check if we already have a task for this target
+        target_key = f"{task.type.value}:{task.target}"
+        if target_key in self._target_tasks:
+            existing_task = self._target_tasks[target_key]
+            # If existing task has higher priority, keep it
+            if existing_task.priority >= task.priority:
+                return
+            # Otherwise, remove the existing task and add the new one
+            else:
+                self._remove_task(existing_task.task_id)
+
         self._tasks[task.task_id] = task
+        self._target_tasks[target_key] = task
         # Use negative priority for max-heap behavior (higher priority first)
         heapq.heappush(self._heap, (-task.priority, self._counter, task))
         self._counter += 1
-    
+
+    def _remove_task(self, task_id: str) -> None:
+        """Remove a task from internal data structures"""
+        if task_id in self._tasks:
+            task = self._tasks[task_id]
+            target_key = f"{task.type.value}:{task.target}"
+            if target_key in self._target_tasks:
+                del self._target_tasks[target_key]
+            del self._tasks[task_id]
+
     def get_next(self) -> Optional[Task]:
         """Get the next highest priority pending task"""
         while self._heap:
@@ -41,18 +63,26 @@ class TaskQueue:
         """Mark a task as completed with result"""
         if task_id not in self._tasks:
             return False
-        
+
         task = self._tasks[task_id]
         task.set_completed(result)
+        # Remove from target tracking when completed
+        target_key = f"{task.type.value}:{task.target}"
+        if target_key in self._target_tasks:
+            del self._target_tasks[target_key]
         return True
-    
+
     def fail_task(self, task_id: str, error_message: str) -> bool:
         """Mark a task as failed with error message"""
         if task_id not in self._tasks:
             return False
-        
+
         task = self._tasks[task_id]
         task.set_failed(error_message)
+        # Remove from target tracking when failed
+        target_key = f"{task.type.value}:{task.target}"
+        if target_key in self._target_tasks:
+            del self._target_tasks[target_key]
         return True
     
     def get_task(self, task_id: str) -> Optional[Task]:

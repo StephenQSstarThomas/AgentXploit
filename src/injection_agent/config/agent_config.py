@@ -21,9 +21,9 @@ from pathlib import Path
 @dataclass
 class AgentConfiguration:
     """Configuration for individual agents in the Agent-as-a-Tool architecture"""
-    
-    # Model configuration
-    model_name: str = "openai/gpt-4o"
+
+    # Model configuration - will be set from settings
+    model_name: str = None
     model_provider: str = "openai"
     temperature: float = 0.2
     max_tokens: Optional[int] = None
@@ -63,12 +63,12 @@ class RootAgentConfig(AgentConfiguration):
     max_session_memory: int = 10000
 
 
-@dataclass 
+@dataclass
 class AnalysisAgentConfig(AgentConfiguration):
     """Configuration specific to the analysis agent"""
-    
-    # Analysis-specific settings
-    max_files_per_analysis: int = 50
+
+    # Analysis-specific settings - will be set from settings
+    max_files_per_analysis: int = None
     analysis_depth: str = "comprehensive"
     enable_security_focus: bool = True
     

@@ -7,7 +7,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from google.adk.tools import ToolContext
 
-from ..planners.analysis_context_manager import AnalysisContextManager
+from .analysis_context_manager import AnalysisContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -221,8 +221,138 @@ Current Focus Areas:
             status += f"  Security Concerns: {security['high_risk_count']} files need attention\n"
         
         return status
-        
+
     except Exception as e:
         error_msg = f"Failed to get analysis status: {str(e)}"
+        logger.error(error_msg)
+        return f"ERROR: {error_msg}"
+
+
+def create_comprehensive_analysis_plan(
+    repo_path: str,
+    analysis_type: str = "security",
+    max_depth: int = 3,
+    tool_context: Optional[ToolContext] = None
+) -> str:
+    """
+    Create a comprehensive analysis plan based on repository context and intelligent prioritization.
+
+    Args:
+        repo_path: Repository path to analyze
+        analysis_type: Type of analysis (security, architecture, comprehensive)
+        max_depth: Maximum analysis depth
+        tool_context: ADK tool context (optional)
+
+    Returns:
+        Comprehensive analysis plan with prioritized tasks
+    """
+
+    try:
+        logger.info(f"Creating comprehensive analysis plan for: {repo_path}")
+
+        # Initialize context manager
+        context_manager = AnalysisContextManager(repo_path)
+
+        # Get comprehensive context
+        overview = context_manager.get_project_overview()
+        security_summary = context_manager.get_security_summary()
+        suggestions = context_manager.suggest_next_priorities()
+        history = context_manager.get_analysis_history(limit=20)
+
+        # Create detailed analysis plan
+        plan = f"""COMPREHENSIVE ANALYSIS PLAN - {repo_path}
+{'='*60}
+
+REPOSITORY OVERVIEW:
+- Project Type: {overview['project_type']}
+- Total Files: {overview['total_files']}
+- Entry Points: {len(overview['entry_points'])}
+- Config Files: {len(overview['config_files'])}
+- Security-Relevant Files: {len(overview['security_relevant_files'])}
+
+CURRENT ANALYSIS STATE:
+- Files Analyzed: {overview['analysis_progress']['files_analyzed']}
+- Security Findings: {security_summary['total_findings']} ({security_summary['high_risk_count']} high risk)
+- Active Todos: {len([t for t in context_manager.analysis_todos if t['status'] in ['pending', 'in_progress']])}
+
+PRIORITIZED ANALYSIS PHASES:
+{'='*40}
+
+PHASE 1 - HIGH PRIORITY SECURITY ANALYSIS:
+"""
+
+        # Phase 1: High-risk security files
+        high_risk_files = security_summary.get('high_risk_files', [])
+        if high_risk_files:
+            plan += "1. Critical Security Files Analysis:\n"
+            for i, file in enumerate(high_risk_files[:5], 1):
+                plan += f"   {i}. {file} - IMMEDIATE SECURITY REVIEW REQUIRED\n"
+
+        # Phase 2: Entry points
+        unanalyzed_entry_points = []
+        analyzed_files = [a["file_path"] for a in context_manager.completed_analysis]
+        for entry_point in overview['entry_points']:
+            if entry_point not in analyzed_files:
+                unanalyzed_entry_points.append(entry_point)
+
+        if unanalyzed_entry_points:
+            plan += "\n2. Entry Points Analysis:\n"
+            for i, entry_point in enumerate(unanalyzed_entry_points[:5], 1):
+                plan += f"   {i}. {entry_point} - ARCHITECTURAL ENTRY POINT\n"
+
+        # Phase 3: Configuration files
+        unanalyzed_configs = []
+        for config_file in overview['config_files']:
+            if config_file not in analyzed_files:
+                unanalyzed_configs.append(config_file)
+
+        if unanalyzed_configs:
+            plan += "\n3. Configuration Analysis:\n"
+            for i, config_file in enumerate(unanalyzed_configs[:5], 1):
+                plan += f"   {i}. {config_file} - CONFIGURATION SECURITY REVIEW\n"
+
+        # Phase 4: Security-relevant files
+        unanalyzed_security = []
+        for security_file in overview['security_relevant_files']:
+            if security_file not in analyzed_files:
+                unanalyzed_security.append(security_file)
+
+        if unanalyzed_security:
+            plan += "\n4. Security-Relevant Files:\n"
+            for i, security_file in enumerate(unanalyzed_security[:5], 1):
+                plan += f"   {i}. {security_file} - SECURITY COMPONENT ANALYSIS\n"
+
+        # Phase 5: AI suggestions
+        if suggestions:
+            plan += "\n5. Intelligent Suggestions:\n"
+            for i, suggestion in enumerate(suggestions[:5], 1):
+                plan += f"   {i}. {suggestion}\n"
+
+        # Analysis strategy
+        plan += f"""
+{'='*40}
+ANALYSIS STRATEGY:
+{'='*40}
+
+Recommended Approach for {analysis_type.upper()} Analysis:
+
+1. **Depth**: {'Deep analysis' if max_depth > 2 else 'Focused analysis'} (max_depth={max_depth})
+2. **Priority**: {'Security-first' if analysis_type == 'security' else 'Architecture-first' if analysis_type == 'architecture' else 'Comprehensive'}
+3. **Scope**: {len(high_risk_files) + len(unanalyzed_entry_points) + len(unanalyzed_configs)} high-priority items identified
+
+EXECUTION RECOMMENDATIONS:
+- Start with Phase 1 (High Priority Security) if security findings exist
+- Use intelligent task generation based on discoveries
+- Update analysis progress regularly for context awareness
+- Create follow-up todos for interesting findings
+
+This plan was generated based on repository structure analysis and {len(history)} historical analysis actions.
+"""
+
+        logger.info(f"Comprehensive analysis plan created for {repo_path}")
+        return plan
+
+    except Exception as e:
+        error_msg = f"Failed to create comprehensive analysis plan: {str(e)}"
         logger.error(error_msg)
         return f"ERROR: {error_msg}"

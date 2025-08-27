@@ -18,25 +18,23 @@ from google.adk.tools import FunctionTool
 
 from ..config import settings
 
-from ..tools.analysis import (
-    analyze_repository_static,
-    scan_directory_security,
-    analyze_call_graph,
-    track_dataflow,
-    detect_patterns,
-    manage_analysis_tasks
+# Analysis functions are now handled by smart_analyzer
+from ..tools.planning.task_manager import (
+    create_analysis_todo,
+    update_analysis_progress,
+    get_analysis_status,
+    create_comprehensive_analysis_plan
 )
-from ..tools.analysis.context_tools import (
+from ..tools.planning.context_tools import (
     initialize_analysis_context,
     get_project_overview,
     get_analysis_history,
     get_security_summary,
-    add_analysis_todo,
     update_todo_status,
     get_current_todos,
     get_next_suggestions,
     record_analysis_result,
-    record_directory_structure
+    record_directory_structure,
 )
 
 
@@ -58,83 +56,84 @@ their architecture, identify security patterns, and map potential vulnerabilitie
 
 Your capabilities include:
 
-1. **Static Repository Analysis**: 
-   - Analyze directory structure and key files
-   - Understand agent workflow and architecture  
-   - Identify entry points and data flow patterns
-   - Generate comprehensive architectural reports
+1. **Autonomous Repository Analysis**:
+   - Perform intelligent analysis using context and discoveries
+   - Make autonomous decisions about exploration and file analysis
+   - Use security findings to drive investigation priorities
+   - Generate comprehensive analysis reports
 
-2. **Security Scanning**:
-   - Scan directories for security vulnerabilities
-   - Identify injection points and attack surfaces
-   - Assess risk levels and impact potential
-   - Generate security assessment reports
+2. **Security Analysis**:
+   - Analyze files for security vulnerabilities and injection points
+   - Assess risk levels and provide detailed findings
+   - Identify high-risk files requiring immediate attention
+   - Generate security assessment summaries
 
-3. **Call Graph Analysis**:
-   - Map function call relationships
-   - Trace execution paths through code
-   - Identify critical control flow points
-   - Analyze inter-module dependencies
+3. **Context Management**:
+   - Track analysis progress and project understanding
+   - Maintain analysis history for intelligent decision making
+   - Provide project overview and status information
+   - Support adaptive planning based on discoveries
 
-4. **Data Flow Tracking**:
-   - Track data movement through the system
-   - Identify data transformation points
-   - Map input/output relationships
-   - Find potential data leakage points
+4. **Task Management**:
+   - Create and manage analysis tasks with intelligent planning
+   - Update analysis progress and track completion
+   - Generate comprehensive analysis plans
+   - Coordinate analysis workflow with adaptive strategies
 
-5. **Pattern Detection**:
-   - Detect common vulnerability patterns
-   - Identify anti-patterns and code smells
-   - Find configuration and deployment issues
-   - Recognize security-relevant patterns
+INTELLIGENT DECISION MAKING & PLANNING:
+You have access to comprehensive context and planning tools that enable autonomous, intelligent analysis:
 
-6. **Task Management**:
-   - Manage analysis workflow tasks
-   - Prioritize analysis steps
-   - Track analysis progress
-   - Coordinate multiple analysis phases
-
-AUTONOMOUS DECISION MAKING:
-You have access to context tools that help you make intelligent decisions about what to analyze next:
-
+**Available Tools:**
 1. **get_project_overview()** - Understand current project structure and analysis progress
 2. **get_analysis_history()** - See what has been discovered recently
 3. **get_security_summary()** - Review security findings so far
 4. **get_current_todos()** - Check your current analysis tasks
-5. **get_next_suggestions()** - Get AI suggestions for next priorities
-6. **add_analysis_todo()** - Create your own analysis tasks
-7. **record_analysis_result()** - Record your findings for future reference
+5. **get_analysis_status()** - Get comprehensive analysis status and progress
+6. **get_next_suggestions()** - Get AI suggestions for next priorities
+7. **create_analysis_todo()** - Create prioritized analysis todos
+8. **update_analysis_progress()** - Update progress on completed analysis
+9. **create_comprehensive_analysis_plan()** - Generate intelligent analysis plans
+10. **manage_analysis_tasks()** - Coordinate and manage the entire analysis workflow
 
-WORKFLOW:
-1. Start by calling get_project_overview() and get_analysis_history() to understand context
-2. Use your analysis tools to examine the repository
-3. Record important findings with record_analysis_result()
-4. Add new todos for follow-up analysis with add_analysis_todo()
-5. Use get_next_suggestions() to identify priority areas
-6. Make autonomous decisions about what to analyze next based on discoveries
+ANALYSIS WORKFLOW:
+
+1. **Planning**: Use create_comprehensive_analysis_plan() to establish analysis priorities
+2. **Context Review**: Call get_project_overview() and get_analysis_history() to understand current state
+3. **Adaptive Analysis**: Use get_analysis_status() and create_analysis_todo() to guide next steps
+4. **Security Focus**: Prioritize analysis based on security findings and risk assessment
+5. **Progress Tracking**: Use update_analysis_progress() to maintain analysis state
+6. **Iterative Refinement**: Use get_current_todos() for continuous improvement
+
+CONTEXT-AWARE DECISION MAKING:
+- Always check current analysis status before making decisions
+- Use project overview and history to avoid redundant analysis
+- Prioritize based on security findings and architectural importance
+- Create todos for follow-up analysis of interesting discoveries
+- Update progress regularly to maintain accurate context
 
 Focus on security vulnerabilities, injection points, and architectural risks.
-Be proactive - when you discover something interesting, investigate it thoroughly.
-Manage your own analysis workflow using the context tools.
+Be proactive - when you discover something interesting, investigate it thoroughly and create follow-up tasks.
+Use the full context and planning toolkit to manage comprehensive, intelligent analysis workflows.
 """,
         tools=[
-            FunctionTool(analyze_repository_static),
-            FunctionTool(scan_directory_security),
-            FunctionTool(analyze_call_graph),
-            FunctionTool(track_dataflow),
-            FunctionTool(detect_patterns),
-            FunctionTool(manage_analysis_tasks),
-            # Context and todo management tools
+            # Core analysis tools are now handled by smart_analyzer
+
+            # Context awareness tools
             FunctionTool(initialize_analysis_context),
             FunctionTool(get_project_overview),
             FunctionTool(get_analysis_history),
             FunctionTool(get_security_summary),
-            FunctionTool(add_analysis_todo),
-            FunctionTool(update_todo_status),
+            FunctionTool(get_analysis_status),
             FunctionTool(get_current_todos),
             FunctionTool(get_next_suggestions),
+
+            # Task management tools
+            FunctionTool(create_analysis_todo),
+            FunctionTool(update_todo_status),
+            FunctionTool(update_analysis_progress),
             FunctionTool(record_analysis_result),
             FunctionTool(record_directory_structure),
+            FunctionTool(create_comprehensive_analysis_plan),
         ],
     )
     

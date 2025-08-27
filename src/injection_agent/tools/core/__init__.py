@@ -3,13 +3,13 @@ from .analysis_context import AnalysisContext
 from .task import Task, TaskType
 from .task_queue import TaskQueue
 from .execution_logger import ExecutionLogger
-from .core_tools import CoreTools
+from .core_tools import EnhancedFileReader
 
 __all__ = [
     'AnalysisContext',
-    'Task', 
+    'Task',
     'TaskType',
     'TaskQueue',
     'ExecutionLogger',
-    'CoreTools'
+    'EnhancedFileReader'
 ]
