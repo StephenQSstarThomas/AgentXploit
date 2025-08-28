@@ -285,17 +285,25 @@ class Analyzer:
         # Aggregate and organize security findings
         all_security_findings = []
         high_risk_files = []
+        medium_risk_files = []
 
         for sec_result in security_findings:
             findings = sec_result.get("findings", [])
             all_security_findings.extend(findings)
-            if sec_result["risk_assessment"]["overall_risk"] == "HIGH":
+            risk_level = sec_result["risk_assessment"]["overall_risk"]
+            if risk_level == "HIGH":
                 high_risk_files.append(sec_result["file_path"])
+            elif risk_level == "MEDIUM":
+                medium_risk_files.append(sec_result["file_path"])
 
         # Sort findings by risk level
         risk_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "UNKNOWN": 3}
         sorted_security_findings = sorted(security_findings,
             key=lambda x: risk_order.get(x["risk_assessment"]["overall_risk"], 3))
+
+        # Separate findings by severity for summary
+        high_risk_findings = [f for f in security_findings if f["risk_assessment"]["overall_risk"] == "HIGH"]
+        medium_risk_findings = [f for f in security_findings if f["risk_assessment"]["overall_risk"] == "MEDIUM"]
 
         # Categorize files by risk level
         low_risk_files = []
@@ -546,7 +554,7 @@ class Analyzer:
             for item in (self.repo_path / ".").iterdir():
                 if item.is_dir() and not item.name.startswith('.'):
                     dir_name = item.name
-                    if dir_name not in explored_dirs and dir_name not in ['node_modules', '__pycache__']:
+                    if dir_name not in explored_dirs and dir_name not in ['node_modules', '__pycache__', '.git', 'build', 'dist']:
                         root_unexplored.append(dir_name)
 
         except Exception:
@@ -571,19 +579,43 @@ CURRENT DIRECTORY FILES (available for analysis):
 CURRENT DIRECTORY SUBDIRECTORIES (available for exploration):
 {chr(10).join(f"- {d}" for d in dirs[:20])}
 
-PRIORITY STRATEGY:
-1. FIRST: Read IMPORTANT FILES in current directory (main.py, __init__.py, config files, security-related)
-2. SECOND: Only then explore UNEXPLORED SUBDIRECTORIES from the list above
-3. THIRD: Check if there are unexplored directories at root level
+HIERARCHICAL DECISION FRAMEWORK:
 
-CRITICAL RULES:
-- ONLY choose files/subdirectories that EXIST in the lists above
-- NEVER guess or create paths that don't exist
-- NEVER repeat directory names (no "dir/dir/file")
-- NEVER use "././" prefixes
-- If current directory has important files, READ THEM FIRST
-- Only explore subdirectories AFTER reading important current files
-- Prefer files over directories when both are important
+UNDERSTAND YOUR OPTIONS:
+- CURRENT DIRECTORY FILES: {chr(10).join(f"- {f}" for f in files[:20])}
+- CURRENT DIRECTORY SUBDIRECTORIES: {chr(10).join(f"- {d}" for d in dirs[:20])}
+- UNEXPLORED ROOT DIRECTORIES: {chr(10).join(f"- {d}" for d in root_unexplored[:10])}
+- UNEXPLORED SUBDIRECTORIES: {chr(10).join(f"- {d}" for d in unexplored_areas[:10])}
+
+DECISION HIERARCHY (FOLLOW THIS ORDER STRICTLY):
+
+LEVEL 1 - CURRENT DIRECTORY FILES (HIGHEST PRIORITY):
+- If CURRENT DIRECTORY contains important files (main.py, __init__.py, config files, security-critical files)
+- READ THESE FILES FIRST before any exploration
+- This establishes the foundation of what this directory does
+
+LEVEL 2 - CURRENT DIRECTORY SUBDIRECTORIES (SECOND PRIORITY):
+- Only if CURRENT DIRECTORY has NO important files to read
+- Explore SUBDIRECTORIES WITHIN the current directory
+- This allows depth-first exploration of the current scope
+
+LEVEL 3 - UNEXPLORED ROOT DIRECTORIES (THIRD PRIORITY):
+- Only if CURRENT DIRECTORY has NO important files AND NO subdirectories
+- Look for unexplored directories at ROOT level
+- Prefer directories that appear to be core application components
+
+LEVEL 4 - UNEXPLORED SUBDIRECTORIES (FOURTH PRIORITY):
+- Only if all above levels are exhausted
+- Consider subdirectories in already explored directories
+- This is for completing depth exploration
+
+CRITICAL DECISION RULES:
+- ALWAYS check LEVEL 1 first - read important current files if available
+- ONLY move to LEVEL 2 if LEVEL 1 has nothing important
+- ONLY move to LEVEL 3 if both LEVEL 1 and LEVEL 2 are empty
+- ONLY use LEVEL 4 as last resort
+- NEVER guess paths - only choose from the lists above
+- Maximum 3 targets total
 
 Respond with JSON:
 {{
@@ -600,7 +632,7 @@ Respond with JSON:
 }}
 
 SELECTION RULES:
-- Maximum 4 targets
+- Maximum 3 targets
 - Prioritize files in current directory over exploration
 - Only explore if no important files remain in current directory
 - Use EXACT paths from the provided lists above"""
@@ -629,8 +661,10 @@ SELECTION RULES:
 
         if decision_text:
             decisions = self._parse_llm_decision(decision_text)
-            # Execute LLM decisions
-            self._execute_llm_decisions(decisions, explored_path)
+            # Validate LLM decisions against available items
+            validated_decisions = self._validate_llm_decisions(decisions, files, dirs)
+            # Execute validated LLM decisions
+            self._execute_llm_decisions(validated_decisions, explored_path)
         else:
             print("  Max retries reached, using fallback")
             # Fallback to simple exploration
@@ -744,6 +778,88 @@ DISCOVERED FILES:
         except Exception as e:
             print(f"Failed to parse LLM decision: {e}")
             return {"analysis_targets": [], "strategy_explanation": "parsing_failed"}
+
+    def _validate_llm_decisions(self, decisions: Dict, available_files: List[str], available_dirs: List[str]) -> Dict:
+        """Validate LLM decisions against available items to prevent guessing non-existent files"""
+        if not decisions or "analysis_targets" not in decisions:
+            return {"analysis_targets": [], "strategy_explanation": "no_valid_targets"}
+
+        valid_targets = []
+        original_count = len(decisions["analysis_targets"])
+
+        for target in decisions["analysis_targets"]:
+            target_path = target.get("path", "")
+            target_type = target.get("type", "")
+
+            # Extract filename/directory name from path
+            path_parts = target_path.split('/')
+            item_name = path_parts[-1] if path_parts else ""
+
+            # Validate based on type
+            if target_type == "file":
+                # Check if file exists in available files list
+                if item_name in available_files:
+                    valid_targets.append(target)
+                    print(f"  [VALID] File target accepted: {item_name}")
+                else:
+                    print(f"  [REJECT] File not in available list: {item_name} (available: {available_files[:5]}...)")
+            elif target_type == "directory":
+                # Check if directory exists in available directories list
+                if item_name in available_dirs:
+                    valid_targets.append(target)
+                    print(f"  [VALID] Directory target accepted: {item_name}")
+                else:
+                    print(f"  [REJECT] Directory not in available list: {item_name} (available: {available_dirs[:5]}...)")
+            else:
+                print(f"  [REJECT] Invalid target type: {target_type}")
+
+        validated_decisions = decisions.copy()
+        validated_decisions["analysis_targets"] = valid_targets
+
+        print(f"  [VALIDATION] {len(valid_targets)}/{original_count} targets validated")
+
+        return validated_decisions
+
+    def _validate_content_decisions(self, decisions: Dict, available_files: List[str], available_dirs: List[str], unexplored_subdirs: List[str]) -> Dict:
+        """Validate content follow-up decisions against available items"""
+        if not decisions or "follow_up_targets" not in decisions:
+            return {"follow_up_targets": [], "exploration_strategy": "no_valid_targets"}
+
+        valid_targets = []
+        original_count = len(decisions["follow_up_targets"])
+
+        for target in decisions["follow_up_targets"]:
+            target_path = target.get("path", "")
+            target_type = target.get("type", "")
+
+            # Extract filename/directory name from path
+            path_parts = target_path.split('/')
+            item_name = path_parts[-1] if path_parts else ""
+
+            # Validate based on type
+            if target_type == "file":
+                # Check if file exists in available files list or unexplored subdirs (for referenced files)
+                if item_name in available_files or any(item_name in subdir for subdir in unexplored_subdirs):
+                    valid_targets.append(target)
+                    print(f"  [VALID] Content follow-up file accepted: {item_name}")
+                else:
+                    print(f"  [REJECT] Content follow-up file not found: {item_name}")
+            elif target_type == "directory":
+                # Check if directory exists in available directories or unexplored subdirs
+                if item_name in available_dirs or item_name in unexplored_subdirs:
+                    valid_targets.append(target)
+                    print(f"  [VALID] Content follow-up directory accepted: {item_name}")
+                else:
+                    print(f"  [REJECT] Content follow-up directory not found: {item_name}")
+            else:
+                print(f"  [REJECT] Invalid follow-up target type: {target_type}")
+
+        validated_decisions = decisions.copy()
+        validated_decisions["follow_up_targets"] = valid_targets
+
+        print(f"  [CONTENT VALIDATION] {len(valid_targets)}/{original_count} follow-up targets validated")
+
+        return validated_decisions
 
     def _execute_llm_decisions(self, decisions: Dict, explored_path: str) -> None:
         """Execute decisions made by LLM"""
@@ -921,10 +1037,41 @@ CURRENT REPOSITORY CONTEXT:
 IMPORTANT: You can ONLY select from EXISTING items. Based on current analysis, decide what follow-up actions to take.
 
 AVAILABLE ACTIONS (you can ONLY choose these):
-1. Files referenced by current file (imports, includes, dependencies)
-2. Unexplored subdirectories from the repository
-3. Security-related files in current directory
-4. Configuration files that might be related
+1. Files referenced by current file (imports, includes, dependencies) - MUST EXIST
+2. Unexplored subdirectories from the repository - MUST EXIST
+3. Security-related files in current directory - MUST EXIST
+4. Configuration files that might be related - MUST EXIST
+
+FOLLOW-UP DECISION HIERARCHY:
+
+LEVEL 1 - IMPORTED/REFERENCED FILES (HIGHEST PRIORITY):
+- If current file IMPORTS or REFERENCES other files
+- Read those imported files to understand dependencies
+- This helps build complete understanding of the codebase
+
+LEVEL 2 - UNEXPLORED SUBDIRECTORIES (SECOND PRIORITY):
+- Only if NO imported files to read
+- Explore subdirectories to continue depth-first analysis
+- This expands the current scope of analysis
+
+LEVEL 3 - SECURITY-RELATED FILES (THIRD PRIORITY):
+- Only if NO imported files AND NO subdirectories to explore
+- Look for security configuration or policy files
+- This focuses on security aspects of the current directory
+
+LEVEL 4 - OTHER CONFIGURATION FILES (FOURTH PRIORITY):
+- Only if all above levels are exhausted
+- Consider other configuration files in current directory
+- This is for completeness of analysis
+
+CRITICAL FOLLOW-UP RULES:
+- ALWAYS prioritize IMPORTED files first (Level 1)
+- ONLY move to Level 2 if no imported files exist
+- ONLY move to Level 3 if both Level 1 and Level 2 are empty
+- ONLY use Level 4 as last resort
+- NEVER guess paths - only choose from existing items
+- If no valid follow-ups available, return empty targets array
+- Maximum 2 targets total
 
 Respond with JSON:
 {{
@@ -939,14 +1086,7 @@ Respond with JSON:
     "exploration_strategy": "focus on existing items",
     "security_focus": "what security aspects to investigate further"
 }}
-
-CRITICAL RULES:
-- ONLY choose EXISTING files or directories
-- NEVER guess or create non-existent paths
-- NEVER repeat directory names in path
-- NEVER use "././" prefixes
-- If no important follow-ups available, return empty targets array
-- Limit to 3 targets maximum"""
+"""
 
         # Debug: Check if history context is available for content analysis
         content_history = self._build_history_context()
@@ -973,8 +1113,10 @@ CRITICAL RULES:
 
         if decision_text:
             decisions = self._parse_llm_decision(decision_text)
-            # Execute LLM decisions
-            self._execute_content_follow_up(decisions, file_path)
+            # Validate content follow-up decisions
+            validated_decisions = self._validate_content_decisions(decisions, current_dir_files, current_dir_dirs, unexplored_subdirs)
+            # Execute validated LLM decisions
+            self._execute_content_follow_up(validated_decisions, file_path)
         else:
             print("  Max retries reached, using security-based fallback")
             # Simple fallback based on security risk
@@ -983,8 +1125,7 @@ CRITICAL RULES:
 
     def _build_content_context(self, file_path: str, content: str, security_result: Dict) -> str:
         """Build content analysis context for LLM"""
-        context = f"""
-CURRENT FILE ANALYSIS:
+        context = f"""CURRENT FILE ANALYSIS:
 - File: {file_path}
 - Risk Level: {security_result['risk_assessment']['overall_risk']}
 - Security Score: {security_result['risk_assessment']['risk_score']}/100
