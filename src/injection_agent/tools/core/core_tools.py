@@ -44,28 +44,40 @@ class EnhancedFileReader:
             '.mp4', '.mp3', '.wav', '.avi', '.mov',
             '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'
         }
-    
-    def read_file(self, file_path: str, start_line: Optional[int] = None, 
+
+    def read_file(self, file_path: str, start_line: Optional[int] = None,
                   end_line: Optional[int] = None, max_lines: int = 100,
                   force_encoding: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Enhanced file reader with encoding detection and binary file handling
-        
-        Args:
-            file_path: Path to the file relative to repo_path
-            start_line: Starting line number (1-based)
-            end_line: Ending line number (1-based)
-            max_lines: Maximum number of lines to read
-            force_encoding: Force specific encoding (optional)
-        """
         try:
             target_file = self.repo_path / file_path
-            
+
             if not target_file.exists():
+                # Try to provide more context about the file not found error
+                parent_dir = target_file.parent
+                if parent_dir.exists():
+                    try:
+                        # List contents of parent directory to help diagnose
+                        import os
+                        contents = os.listdir(parent_dir)
+                        similar_files = [f for f in contents if file_path.split('/')[-1] in f][:5]
+                        return {
+                            "error": f"File not found: {file_path}",
+                            "file_path": file_path,
+                            "error_type": "FILE_NOT_FOUND",
+                            "parent_directory_exists": True,
+                            "parent_directory_contents": contents[:10],  # First 10 items
+                            "similar_files": similar_files,
+                            "suggestion": f"Check if the file exists in {parent_dir}"
+                        }
+                    except Exception:
+                        pass
+
                 return {
-                    "error": "File not found",
+                    "error": f"File not found: {file_path}",
                     "file_path": file_path,
-                    "error_type": "FILE_NOT_FOUND"
+                    "error_type": "FILE_NOT_FOUND",
+                    "parent_directory_exists": parent_dir.exists(),
+                    "suggestion": "Check file path and ensure it exists"
                 }
             
             # Check file size
@@ -104,6 +116,11 @@ class EnhancedFileReader:
                 with open(target_file, 'r', encoding=encoding_info["encoding"]) as f:
                     lines = f.readlines()
             except UnicodeDecodeError as e:
+                # Try terminal fallback for encoding issues
+                fallback_result = self._try_terminal_fallback(target_file, start_line, end_line, max_lines)
+                if fallback_result:
+                    return fallback_result
+
                 return {
                     "error": f"Unicode decode error: {str(e)}",
                     "file_path": file_path,
@@ -135,18 +152,312 @@ class EnhancedFileReader:
             }
             
         except PermissionError:
+            # Try terminal fallback for permission issues
+            fallback_result = self._try_terminal_fallback(target_file, start_line, end_line, max_lines)
+            if fallback_result:
+                return fallback_result
+
             return {
                 "error": "Permission denied",
                 "file_path": file_path,
                 "error_type": "PERMISSION_DENIED"
             }
         except Exception as e:
+            # Try terminal fallback methods before giving up
+            fallback_result = self._try_terminal_fallback(target_file, start_line, end_line, max_lines)
+            if fallback_result:
+                return fallback_result
+
             return {
                 "error": f"Unexpected error: {str(e)}",
                 "file_path": file_path,
                 "error_type": "UNEXPECTED_ERROR"
             }
-    
+
+    def get_tree_structure(self, path: str = ".", max_depth: int = 3) -> Dict[str, Any]:
+        """
+        Get repository tree structure using tree command for efficiency
+
+        Args:
+            path: Relative path to get tree structure from
+            max_depth: Maximum depth to traverse
+
+        Returns:
+            Dictionary containing tree structure information
+        """
+        import subprocess
+
+        try:
+            target_path = self.repo_path / path
+            if not target_path.exists():
+                return {
+                    "error": f"Path not found: {path}",
+                    "error_type": "PATH_NOT_FOUND"
+                }
+
+            # Use tree command for efficient directory traversal
+            cmd = f"tree -L {max_depth} -a -I '.git|__pycache__|node_modules|.pytest_cache' '{target_path}' 2>/dev/null || find '{target_path}' -type f -name '*.py' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.toml' -o -name '*.json' -o -name '*.sh' | head -50"
+
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+
+            if result.returncode == 0:
+                tree_output = result.stdout.strip()
+
+                # Parse tree output to extract structure
+                lines = tree_output.split('\n')
+                directories = []
+                files = []
+
+                for line in lines:
+                    if line.strip():
+                        # Simple parsing - can be enhanced
+                        if line.endswith('/'):
+                            directories.append(line.strip().rstrip('/'))
+                        elif '.' in line:
+                            files.append(line.strip())
+
+                return {
+                    "tree_output": tree_output,
+                    "directories": directories,
+                    "files": files,
+                    "total_directories": len(directories),
+                    "total_files": len(files),
+                    "method": "tree_command",
+                    "max_depth": max_depth,
+                    "path": path
+                }
+            else:
+                # Fallback to basic find command
+                fallback_cmd = f"find '{target_path}' -maxdepth {max_depth} -type f | head -50"
+                fallback_result = subprocess.run(fallback_cmd, shell=True, capture_output=True, text=True, timeout=10)
+
+                if fallback_result.returncode == 0:
+                    files = [line.strip() for line in fallback_result.stdout.split('\n') if line.strip()]
+
+                    return {
+                        "tree_output": fallback_result.stdout.strip(),
+                        "directories": [],  # Basic fallback doesn't separate dirs/files
+                        "files": files,
+                        "total_directories": 0,
+                        "total_files": len(files),
+                        "method": "find_fallback",
+                        "max_depth": max_depth,
+                        "path": path
+                    }
+
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, Exception) as e:
+            return {
+                "error": f"Tree command failed: {str(e)}",
+                "error_type": "TREE_COMMAND_ERROR"
+            }
+
+        return {
+            "error": "Unable to get tree structure",
+            "error_type": "UNKNOWN_ERROR"
+        }
+
+    def _try_terminal_fallback(self, target_file: Path, start_line: Optional[int] = None,
+                              end_line: Optional[int] = None, max_lines: int = 100) -> Optional[Dict[str, Any]]:
+        """
+        Try terminal commands as fallback when Python file reading fails
+        """
+        import subprocess
+
+        file_path_str = str(target_file)
+
+        # Try different terminal commands in order of preference
+        commands = []
+
+        if start_line and end_line:
+            # Try sed for line range
+            commands.append(f"sed -n '{start_line},{end_line}p' '{file_path_str}'")
+        elif start_line:
+            # Try tail + head combination
+            commands.append(f"tail -n +{start_line} '{file_path_str}' | head -n {max_lines}")
+        else:
+            # Try head for beginning of file
+            commands.append(f"head -n {max_lines} '{file_path_str}'")
+
+        # Try cat as basic fallback
+        commands.append(f"cat '{file_path_str}'")
+
+        for cmd in commands:
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+
+                if result.returncode == 0 and result.stdout.strip():
+                    lines = result.stdout.split('\n')
+                    total_lines = len(lines)
+
+                    # Handle line range for cat command
+                    if cmd.startswith('cat') and start_line:
+                        start_idx = max(0, start_line - 1)
+                        end_idx = min(total_lines, end_line or (start_idx + max_lines))
+                        selected_lines = lines[start_idx:end_idx]
+                    else:
+                        selected_lines = lines[:max_lines]
+
+                    return {
+                        "content": '\n'.join(selected_lines),
+                        "lines": len(selected_lines),
+                        "total_lines": total_lines,
+                        "file_path": str(target_file.relative_to(self.repo_path)),
+                        "truncated": len(selected_lines) < total_lines,
+                        "method": "terminal_fallback",
+                        "command_used": cmd
+                    }
+
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, Exception) as e:
+                # Try next command if this one fails
+                continue
+
+        return None
+
+    def get_directory_tree(self, path: str = ".", max_depth: int = 3,
+                          show_files: bool = True, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Get directory tree structure using tree command (efficient for large repos)
+
+        Args:
+            path: Directory path relative to repo
+            max_depth: Maximum depth to traverse
+            show_files: Whether to show files or just directories
+            exclude_patterns: Patterns to exclude (e.g., ['node_modules', '.git'])
+
+        Returns:
+            Dictionary with tree structure and metadata
+        """
+        import subprocess
+
+        try:
+            target_path = self.repo_path / path
+            if not target_path.exists():
+                return {"error": f"Path not found: {path}"}
+
+            if not target_path.is_dir():
+                return {"error": f"Path is not a directory: {path}"}
+
+            # Build tree command
+            cmd_parts = ["tree"]
+            cmd_parts.extend(["-L", str(max_depth)])
+
+            if not show_files:
+                cmd_parts.append("-d")  # directories only
+
+            if exclude_patterns:
+                # tree command supports -I for exclude patterns
+                exclude_str = "|".join(exclude_patterns)
+                cmd_parts.extend(["-I", exclude_str])
+
+            cmd_parts.append(str(target_path))
+
+            # Execute tree command
+            result = subprocess.run(
+                cmd_parts,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=self.repo_path
+            )
+
+            if result.returncode == 0:
+                tree_output = result.stdout
+                error_output = result.stderr
+
+                # Parse tree output to extract structure
+                structure = self._parse_tree_output(tree_output, str(target_path))
+
+                return {
+                    "tree_output": tree_output,
+                    "structure": structure,
+                    "command_used": " ".join(cmd_parts),
+                    "max_depth": max_depth,
+                    "show_files": show_files,
+                    "exclude_patterns": exclude_patterns or [],
+                    "error_output": error_output.strip() if error_output.strip() else None
+                }
+            else:
+                # Fallback to recursive listing if tree fails
+                return self._recursive_tree_fallback(target_path, max_depth, show_files, exclude_patterns)
+
+        except subprocess.TimeoutExpired:
+            return {"error": "Tree command timed out"}
+        except Exception as e:
+            return {"error": f"Tree command failed: {str(e)}"}
+
+    def _parse_tree_output(self, tree_output: str, root_path: str) -> Dict[str, Any]:
+        """Parse tree command output into structured format"""
+        lines = tree_output.strip().split('\n')
+        structure = {
+            "root": root_path,
+            "directories": [],
+            "files": [],
+            "total_dirs": 0,
+            "total_files": 0
+        }
+
+        for line in lines:
+            if not line.strip() or line.startswith('└') or line.startswith('├'):
+                continue
+
+            # Count directories and files from summary line
+            if line.startswith('directories,'):
+                parts = line.split()
+                try:
+                    structure["total_dirs"] = int(parts[0])
+                    structure["total_files"] = int(parts[2])
+                except (ValueError, IndexError):
+                    pass
+
+        return structure
+
+    def _recursive_tree_fallback(self, target_path: Path, max_depth: int,
+                                show_files: bool, exclude_patterns: Optional[List[str]]) -> Dict[str, Any]:
+        """Fallback tree implementation using recursive directory listing"""
+        def should_exclude(name: str) -> bool:
+            if not exclude_patterns:
+                return False
+            return any(fnmatch.fnmatch(name, pattern) for pattern in exclude_patterns)
+
+        def build_tree(current_path: Path, current_depth: int) -> Dict[str, Any]:
+            if current_depth > max_depth:
+                return {"name": current_path.name, "type": "directory", "truncated": True}
+
+            try:
+                items = []
+                if current_path.is_dir():
+                    for item in sorted(current_path.iterdir()):
+                        if should_exclude(item.name):
+                            continue
+
+                        if item.is_dir():
+                            subtree = build_tree(item, current_depth + 1)
+                            items.append(subtree)
+                        elif show_files and item.is_file():
+                            items.append({
+                                "name": item.name,
+                                "type": "file",
+                                "size": item.stat().st_size
+                            })
+
+                return {
+                    "name": current_path.name,
+                    "type": "directory",
+                    "items": items,
+                    "path": str(current_path.relative_to(self.repo_path))
+                }
+            except PermissionError:
+                return {"name": current_path.name, "type": "directory", "error": "permission_denied"}
+
+        tree_structure = build_tree(target_path, 0)
+
+        return {
+            "tree_output": "Generated by fallback method (tree command not available)",
+            "structure": tree_structure,
+            "command_used": "recursive_fallback",
+            "method": "fallback"
+        }
+
     def _analyze_file_type(self, file_path: Path) -> Dict[str, Any]:
         """Analyze file type to determine if it's binary or text"""
         extension = file_path.suffix.lower()

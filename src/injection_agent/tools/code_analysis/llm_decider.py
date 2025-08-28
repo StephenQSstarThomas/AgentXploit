@@ -23,33 +23,66 @@ class LLMHelper:
             except Exception:
                 pass
     
-    def analyze_code_snippet(self, code: str, file_path: str) -> Dict[str, Any]:
+    def analyze_code_snippet(self, code: str, file_path: str, max_retries: int = 2) -> Dict[str, Any]:
         """Analyze code snippet for insights - used only for supplemental analysis"""
-        
+
+        if not code or not code.strip():
+            return {"error": "Empty code snippet", "file": file_path}
+
+        # Truncate very long code snippets to avoid token limits
+        truncated_code = code[:1500] if len(code) > 1500 else code
+
         prompt = f"""Analyze this code snippet from {file_path}:
 
 ```
-{code[:1000]}  # Limit to first 1000 chars
+{truncated_code}
 ```
 
-Provide:
+Provide a brief analysis covering:
 1. Purpose: What does this code do?
-2. Risk: Any security concerns? (high/medium/low)
+2. Risk: Any security concerns? (high/medium/low/none)
 3. Patterns: Key patterns or frameworks used
+4. Quality: Code quality assessment
 
-Keep response brief and focused."""
-        
-        try:
-            from ...config import settings
-            response = completion(
-                model=settings.LLM_HELPER_MODEL,  # Use configured model for snippet analysis
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=300
-            )
-            
-            content = response.choices[0].message.content
-            return {"analysis": content, "file": file_path}
-            
-        except Exception as e:
-            return {"error": str(e), "file": file_path}
+Keep response under 200 words and focused."""
+
+        for attempt in range(max_retries + 1):
+            try:
+                from ...config import settings
+                response = completion(
+                    model=settings.LLM_HELPER_MODEL,  # Use configured model for snippet analysis
+                    messages=[
+                        {"role": "system", "content": "You are a code analysis assistant. Provide concise, accurate analysis."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,  # Slightly higher for more varied analysis
+                    max_tokens=250,  # Reasonable limit for brief analysis
+                    timeout=30  # 30 second timeout
+                )
+
+                content = response.choices[0].message.content
+
+                if content and len(content.strip()) > 10:  # Ensure meaningful response
+                    return {
+                        "analysis": content.strip(),
+                        "file": file_path,
+                        "model_used": settings.LLM_HELPER_MODEL,
+                        "attempt": attempt + 1,
+                        "truncated": len(code) > 1500
+                    }
+                else:
+                    if attempt < max_retries:
+                        continue  # Try again for empty responses
+
+            except Exception as e:
+                error_msg = str(e)
+                if attempt < max_retries:
+                    continue  # Try again for errors
+                else:
+                    return {
+                        "error": f"LLM analysis failed after {max_retries + 1} attempts: {error_msg}",
+                        "file": file_path,
+                        "last_attempt_error": error_msg
+                    }
+
+        return {"error": "LLM analysis returned empty response", "file": file_path}

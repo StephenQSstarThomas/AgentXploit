@@ -26,7 +26,7 @@ class SecurityFinding:
 
 class SecurityAnalyzer:
     """LLM-powered security analysis of code files"""
-
+    
     def __init__(self):
         self.finding_counter = 0
         self._setup_llm()
@@ -44,17 +44,17 @@ class SecurityAnalyzer:
     def analyze_file_security(self, file_path: str, content: str) -> Dict[str, Any]:
         """
         Perform LLM-powered comprehensive security analysis of a file.
-
+        
         Args:
             file_path: Path to the file being analyzed
             content: File content to analyze
-
+            
         Returns:
             Structured security analysis results
         """
         # Reset finding counter for this file
         self.finding_counter = 0
-
+        
         # Perform LLM-based security analysis
         llm_analysis = self._analyze_with_llm(file_path, content)
 
@@ -66,10 +66,10 @@ class SecurityAnalyzer:
 
         # Combine findings
         all_findings = findings + pattern_findings
-
+        
         # Calculate overall risk assessment
         risk_assessment = self._calculate_risk_assessment(all_findings)
-
+        
         return {
             "file_path": file_path,
             "analysis_timestamp": self._get_timestamp(),
@@ -83,14 +83,17 @@ class SecurityAnalyzer:
     
     def _analyze_with_llm(self, file_path: str, content: str) -> Dict[str, Any]:
         """Use LLM to perform comprehensive security analysis"""
-        try:
-            from litellm import completion
+        # LLM-powered security analysis with robust error handling
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                from litellm import completion
 
-            # Prepare analysis prompt
-            lines = content.split('\n')
-            file_extension = file_path.split('.')[-1] if '.' in file_path else 'unknown'
+                # Prepare analysis prompt
+                lines = content.split('\n')
+                file_extension = file_path.split('.')[-1] if '.' in file_path else 'unknown'
 
-            prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
+                prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
 
 File: {file_path}
 Lines: {len(lines)}
@@ -122,49 +125,75 @@ Format your response as JSON with this structure:
     "summary": "brief summary"
 }}"""
 
-            # Get model from settings
-            try:
-                from ...config import settings
-                model_name = settings.LLM_HELPER_MODEL
-            except:
-                model_name = "gpt-4o"
+                # Get model from settings
+                try:
+                    from ...config import settings
+                    model_name = settings.LLM_HELPER_MODEL
+                except:
+                    model_name = "gpt-4o"
 
-            response = completion(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
-                temperature=0.1
-            )
+                response = completion(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=1000,
+                    temperature=0.1,
+                    timeout=30,  # 30 second timeout
+                    max_retries=1  # LiteLLM internal retry
+                )
 
-            result_text = response.choices[0].message.content
+                result_text = response.choices[0].message.content
 
-            # Try to parse JSON response
-            try:
-                import json
-                return json.loads(result_text)
-            except:
-                # If JSON parsing fails, return structured response
-                return {
-                    "overall_risk": "MEDIUM",
-                    "risk_score": 50,
-                    "findings": [],
-                    "summary": result_text[:500],
-                    "llm_raw_response": result_text
-                }
+                # Try to parse JSON response
+                try:
+                    import json
+                    return json.loads(result_text)
+                except:
+                    # If JSON parsing fails, return structured response
+                    return {
+                        "overall_risk": "MEDIUM",
+                        "risk_score": 50,
+                        "findings": [],
+                        "summary": result_text[:500],
+                        "llm_raw_response": result_text
+                    }
 
-        except Exception as e:
-            return {
-                "overall_risk": "UNKNOWN",
-                "risk_score": 0,
-                "findings": [],
-                "summary": f"LLM analysis failed: {str(e)}",
-                "error": str(e)
-            }
+            except KeyboardInterrupt:
+                print(f"  Security analysis interrupted (attempt {attempt + 1}/{max_retries})")
+                if attempt == max_retries - 1:
+                    break
+                continue
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"  Security analysis failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
+
+                if attempt == max_retries - 1:
+                    return {
+                        "overall_risk": "UNKNOWN",
+                        "risk_score": 0,
+                        "findings": [],
+                        "summary": f"LLM analysis failed after {max_retries} attempts: {error_msg}",
+                        "error": error_msg
+                    }
+                else:
+                    # Wait before retry
+                    import time
+                    time.sleep(1)
+                    continue
+
+        # All retries failed
+        return {
+            "overall_risk": "UNKNOWN",
+            "risk_score": 0,
+            "findings": [],
+            "summary": "LLM analysis completely failed after all retries",
+            "error": "Max retries exceeded"
+        }
 
     def _extract_findings_from_llm(self, file_path: str, content: str, llm_analysis: Dict) -> List[SecurityFinding]:
         """Extract security findings from LLM analysis with enhanced LLM-driven decision making"""
         findings = []
-
+        
         llm_findings = llm_analysis.get("findings", [])
 
         for finding_data in llm_findings:
@@ -195,7 +224,7 @@ Format your response as JSON with this structure:
                 code_snippet=finding_data.get("code_snippet", "")
             )
             findings.append(finding)
-
+        
         return findings
 
     def _classify_finding_with_llm(self, finding_data: Dict, content: str) -> str:

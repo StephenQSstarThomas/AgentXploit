@@ -130,7 +130,14 @@ class Analyzer:
 
             if result.get("duration"):
                 print(f"  Duration: {result['duration']:.3f}s")
-            
+
+            # Update task status in queue
+            if success:
+                self.task_queue.complete_task(task.task_id, result)
+            else:
+                error_msg = result.get("error", "Unknown error")
+                self.task_queue.fail_task(task.task_id, error_msg)
+
             # Log execution
             self.execution_logger.log_execution(task, result, result.get("duration", 0))
             
@@ -440,52 +447,145 @@ class Analyzer:
         exploration_context = self._build_exploration_context(explored_path, files, dirs)
 
         # LLM-driven decision making with full context
-        decision_prompt = f"""You are an intelligent security analysis agent making autonomous decisions.
+        # Get repository structure for better exploration decisions
+        try:
+            # Find unexplored areas for depth-first exploration
+            all_dirs = []
+            explored_dirs = list(self.context.get_explored_directories())
+
+            # Get subdirectories of explored directories
+            unexplored_areas = []
+            for explored_dir in explored_dirs:
+                try:
+                    dir_path = self.repo_path / explored_dir
+                    if dir_path.exists():
+                        for subitem in dir_path.iterdir():
+                            if subitem.is_dir() and not subitem.name.startswith('.') and not subitem.name.startswith('__'):
+                                subdir_path = f"{explored_dir}/{subitem.name}"
+                                if subdir_path not in explored_dirs:
+                                    unexplored_areas.append(subdir_path)
+                except:
+                    continue
+
+            # Also look for important top-level directories that haven't been explored
+            root_unexplored = []
+            for item in (self.repo_path / ".").iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    dir_name = item.name
+                    if dir_name not in explored_dirs and dir_name not in ['node_modules', '__pycache__']:
+                        root_unexplored.append(dir_name)
+
+        except Exception:
+            unexplored_areas = []
+            root_unexplored = []
+
+        decision_prompt = f"""You are an intelligent security analysis agent making strategic exploration decisions.
 
 {history_context}
 
 {exploration_context}
 
-Based on the analysis history and current discoveries, decide what to analyze next.
-Consider security implications, code importance, and exploration strategy.
+REPOSITORY EXPLORATION CONTEXT:
+- Unexplored subdirectories: {unexplored_areas[:15]}
+- Unexplored root directories: {root_unexplored[:10]}
+
+IMPORTANT: You can ONLY select from the following existing items in the CURRENT DIRECTORY:
+
+CURRENT DIRECTORY FILES (available for analysis):
+{chr(10).join(f"- {f}" for f in files[:20])}
+
+CURRENT DIRECTORY SUBDIRECTORIES (available for exploration):
+{chr(10).join(f"- {d}" for d in dirs[:20])}
+
+PRIORITY STRATEGY:
+1. FIRST: Read IMPORTANT FILES in current directory (main.py, __init__.py, config files, security-related)
+2. SECOND: Only then explore UNEXPLORED SUBDIRECTORIES from the list above
+3. THIRD: Check if there are unexplored directories at root level
+
+CRITICAL RULES:
+- ONLY choose files/subdirectories that EXIST in the lists above
+- NEVER guess or create paths that don't exist
+- NEVER repeat directory names (no "dir/dir/file")
+- NEVER use "././" prefixes
+- If current directory has important files, READ THEM FIRST
+- Only explore subdirectories AFTER reading important current files
+- Prefer files over directories when both are important
 
 Respond with JSON:
 {{
     "analysis_targets": [
-        {{"type": "file|directory", "path": "path", "priority": "high|medium|low", "reason": "why important for security"}}
+        {{
+            "type": "file|directory",
+            "path": "EXACT path from the lists above",
+            "priority": "high|medium|low",
+            "reason": "why important - be specific"
+        }}
     ],
-    "strategy_explanation": "your reasoning",
-    "risk_focus": "what security aspects to prioritize"
+    "exploration_strategy": "read current important files first, then explore",
+    "architecture_focus": "focus on current scope before expanding"
 }}
 
-Limit to 6 targets maximum. Focus on security-critical items."""
+SELECTION RULES:
+- Maximum 4 targets
+- Prioritize files in current directory over exploration
+- Only explore if no important files remain in current directory
+- Use EXACT paths from the provided lists above"""
 
-        try:
-            # Use LLM for intelligent decision making
-            from litellm import completion
-            response = completion(
-                model=self._get_decision_model(),
-                messages=[
-                    {"role": "system", "content": "You are a senior security analyst making strategic analysis decisions. Use the provided context to make intelligent choices."},
-                    {"role": "user", "content": decision_prompt}
-                ],
-                temperature=0.4,
-                max_tokens=1000
-            )
+        # Debug: Check if history context is available
+        if history_context and len(history_context.strip()) > 50:
+            print(f"  [DEBUG] History context available ({len(history_context)} chars)")
+        else:
+            print(f"  [DEBUG] History context limited or empty")
 
-            decision_text = response.choices[0].message.content
-            decisions = self._parse_llm_decision(decision_text)
+        # LLM decision making with robust error handling
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Use LLM for intelligent decision making
+                from litellm import completion
+                response = completion(
+                    model=self._get_decision_model(),
+                    messages=[
+                        {"role": "system", "content": "You are a senior security analyst making strategic analysis decisions. Use the provided context to make intelligent choices."},
+                        {"role": "user", "content": decision_prompt}
+                    ],
+                    temperature=0.4,
+                    max_tokens=1000,
+                    timeout=30,  # 30 second timeout
+                    max_retries=1  # LiteLLM internal retry
+                )
 
-            # Execute LLM decisions
-            self._execute_llm_decisions(decisions, explored_path)
+                decision_text = response.choices[0].message.content
+                decisions = self._parse_llm_decision(decision_text)
 
-        except Exception as e:
-            print(f"  LLM decision failed: {e}")
-            # Fallback to simple exploration
-            self._simple_fallback_exploration(explored_path, files, dirs)
+                # Execute LLM decisions
+                self._execute_llm_decisions(decisions, explored_path)
+                break  # Success, exit retry loop
+
+            except KeyboardInterrupt:
+                print(f"  LLM decision interrupted (attempt {attempt + 1}/{max_retries})")
+                if attempt == max_retries - 1:
+                    print("  Max retries reached, using fallback")
+                    break
+                continue
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"  LLM decision failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
+
+                if attempt == max_retries - 1:
+                    print("  Max retries reached, using fallback")
+                    # Fallback to simple exploration
+                    self._simple_fallback_exploration(explored_path, files, dirs)
+                    break
+                else:
+                    # Wait before retry
+                    import time
+                    time.sleep(1)
+                    continue
 
     def _build_history_context(self) -> str:
-        """Build comprehensive analysis history context for LLM"""
+        """Build comprehensive analysis history context for LLM to prevent duplicates and invalid paths"""
         try:
             overview = self.context_manager.get_project_overview()
             security_summary = self.context_manager.get_security_summary()
@@ -501,14 +601,46 @@ ANALYSIS HISTORY SUMMARY:
   - Medium risk: {security_summary.get('medium_risk_count', 0)}
   - Low risk: {security_summary.get('low_risk_count', 0)}
 
-RECENTLY ANALYZED FILES:
+EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
 """
 
-            # Add recent file analysis summaries
-            for file_path in analyzed_files[-5:]:  # Last 5 files
+            # List all explored directories to prevent duplicates
+            for dir_path in sorted(explored_dirs):
+                history += f"- {dir_path}\n"
+
+            history += f"\nANALYZED FILES (DO NOT RE-ANALYZE):\n"
+
+            # List all analyzed files to prevent duplicates
+            for file_path in sorted(analyzed_files):
                 file_info = self.context_manager.get_analysis_result(file_path)
-                if file_info:
-                    history += f"- {file_path}: {file_info.get('security_risk', 'unknown')} risk\n"
+                risk = file_info.get('security_risk', 'unknown') if file_info else 'unknown'
+                history += f"- {file_path}: {risk} risk\n"
+
+            # Add current working directory context
+            history += f"\nCURRENT ANALYSIS STATE:\n"
+            history += f"- Repository root: {self.repo_path}\n"
+
+            # Add unanalyzed files in recently explored directories
+            if explored_dirs:
+                history += f"\nFILES AVAILABLE FOR ANALYSIS (in explored directories):\n"
+                for explored_dir in explored_dirs[-3:]:  # Last 3 explored dirs
+                    try:
+                        dir_path = self.repo_path / explored_dir
+                        if dir_path.exists():
+                            for item in dir_path.iterdir():
+                                if item.is_file() and str(item.relative_to(self.repo_path)) not in analyzed_files:
+                                    history += f"- {item.relative_to(self.repo_path)}\n"
+                    except:
+                        continue
+
+            # Add repository structure overview
+            try:
+                tree_result = self.tools.get_tree_structure(".", max_depth=2)
+                if "tree_output" in tree_result and not tree_result.get("error"):
+                    tree_lines = tree_result["tree_output"].split('\n')[:15]  # First 15 lines
+                    history += f"\nREPOSITORY STRUCTURE OVERVIEW:\n" + "\n".join(tree_lines)
+            except Exception:
+                pass  # Tree command might not be available
 
             return history
 
@@ -592,12 +724,60 @@ DISCOVERED FILES:
             elif target_type == "directory" and self.context.is_directory_explored(target_path):
                 continue
 
-            # Create appropriate task
+            # Validate and normalize target path before creating task
+            # Handle malformed paths from LLM (e.g., "././openhands/./openhands/core")
+            original_path = target_path
+            if target_path.startswith('././'):
+                target_path = target_path[4:]  # Remove "././" prefix
+            elif target_path.startswith('./'):
+                target_path = target_path[2:]  # Remove "./" prefix
+
+            # Remove duplicate directory names (e.g., "openhands/openhands/core" -> "openhands/core")
+            parts = target_path.split('/')
+            if len(parts) > 2:
+                # Check for consecutive duplicate directory names
+                cleaned_parts = []
+                for i, part in enumerate(parts):
+                    if i > 0 and part == parts[i-1]:
+                        continue  # Skip duplicate
+                    cleaned_parts.append(part)
+                if len(cleaned_parts) != len(parts):
+                    target_path = '/'.join(cleaned_parts)
+                    print(f"  [CLEAN] Normalized path: {original_path} -> {target_path}")
+
             if target_type == "file":
+                full_path = self.repo_path / target_path
+                if not full_path.exists() or not full_path.is_file():
+                    print(f"  [SKIP] File not found: {target_path}")
+                    continue
+
+                # Check if file is readable (not binary and not too large)
+                try:
+                    file_size = full_path.stat().st_size
+                    if file_size > 10 * 1024 * 1024:  # 10MB limit
+                        print(f"  [SKIP] File too large: {target_path} ({file_size} bytes)")
+                        continue
+
+                    # Quick binary check
+                    with open(full_path, 'rb') as f:
+                        sample = f.read(1024)
+                        if b'\x00' in sample[:100]:  # Likely binary
+                            print(f"  [SKIP] Binary file: {target_path}")
+                            continue
+                except Exception as e:
+                    print(f"  [SKIP] Cannot access file: {target_path} ({e})")
+                    continue
+
                 task = Task(type=TaskType.READ, target=target_path,
                            priority=90 if priority == "high" else 60 if priority == "medium" else 30)
                 print(f"  [FILE] Analyzing: {target_path.split('/')[-1]} ({reason})")
+
             elif target_type == "directory":
+                full_path = self.repo_path / target_path
+                if not full_path.exists() or not full_path.is_dir():
+                    print(f"  [SKIP] Directory not found: {target_path}")
+                    continue
+
                 task = Task(type=TaskType.EXPLORE, target=target_path,
                            priority=80 if priority == "high" else 50)
                 print(f"  [DIR] Exploring: {target_path.split('/')[-1]} ({reason})")
@@ -651,54 +831,130 @@ DISCOVERED FILES:
         # Build content analysis context
         content_context = self._build_content_context(file_path, content, security_result)
 
-        # LLM-driven decision making
-        decision_prompt = f"""You are an intelligent security analysis agent making follow-up decisions after analyzing a file.
+        # Get current repository structure for better decision making
+        try:
+            current_dir_files = []
+            current_dir_dirs = []
+            for item in (self.repo_path / ".").iterdir():
+                if item.is_file():
+                    current_dir_files.append(item.name)
+                elif item.is_dir() and not item.name.startswith('.'):
+                    current_dir_dirs.append(item.name)
+
+            # Get recently explored directories for deeper exploration
+            explored_dirs = list(self.context.get_explored_directories())
+            unexplored_subdirs = []
+            for explored_dir in explored_dirs:
+                try:
+                    dir_path = self.repo_path / explored_dir
+                    if dir_path.exists():
+                        for subitem in dir_path.iterdir():
+                            if subitem.is_dir() and not subitem.name.startswith('.') and not subitem.name.startswith('__'):
+                                subdir_path = f"{explored_dir}/{subitem.name}"
+                                if subdir_path not in explored_dirs:
+                                    unexplored_subdirs.append(subdir_path)
+                except:
+                    continue
+        except Exception:
+            current_dir_files = []
+            current_dir_dirs = []
+            unexplored_subdirs = []
+
+        # LLM-driven decision making with repository awareness
+        decision_prompt = f"""You are an intelligent security analysis agent. Make follow-up decisions based on file analysis and current repository structure.
 
 {history_context}
 
 {content_context}
 
-Based on the file analysis and security findings, decide what follow-up actions to take.
-Consider:
-1. Related files that should be analyzed (imports, dependencies, references)
-2. Configuration files that might be referenced
-3. Security implications that require deeper investigation
-4. Code patterns that suggest additional analysis
+CURRENT REPOSITORY CONTEXT:
+- Root files: {current_dir_files[:10]}
+- Root directories: {current_dir_dirs[:10]}
+- Unexplored subdirectories: {unexplored_subdirs[:10]}
+
+IMPORTANT: You can ONLY select from EXISTING items. Based on current analysis, decide what follow-up actions to take.
+
+AVAILABLE ACTIONS (you can ONLY choose these):
+1. Files referenced by current file (imports, includes, dependencies)
+2. Unexplored subdirectories from the repository
+3. Security-related files in current directory
+4. Configuration files that might be related
 
 Respond with JSON:
 {{
     "follow_up_targets": [
-        {{"type": "file|directory", "path": "path", "priority": "high|medium|low", "reason": "why follow up"}}
+        {{
+            "type": "file|directory",
+            "path": "EXACT existing path only",
+            "priority": "high|medium|low",
+            "reason": "why follow up - be specific"
+        }}
     ],
-    "investigation_strategy": "your analysis strategy",
+    "exploration_strategy": "focus on existing items",
     "security_focus": "what security aspects to investigate further"
 }}
 
-Limit to 4 follow-up targets maximum."""
+CRITICAL RULES:
+- ONLY choose EXISTING files or directories
+- NEVER guess or create non-existent paths
+- NEVER repeat directory names in path
+- NEVER use "././" prefixes
+- If no important follow-ups available, return empty targets array
+- Limit to 3 targets maximum"""
 
-        try:
-            from litellm import completion
-            response = completion(
-                model=self._get_decision_model(),
-                messages=[
-                    {"role": "system", "content": "You are a senior security analyst making strategic follow-up decisions. Use the provided context to make intelligent choices."},
-                    {"role": "user", "content": decision_prompt}
-                ],
-                temperature=0.4,
-                max_tokens=800
-            )
+        # Debug: Check if history context is available for content analysis
+        content_history = self._build_history_context()
+        if content_history and len(content_history.strip()) > 50:
+            print(f"  [DEBUG] Content analysis history available ({len(content_history)} chars)")
+        else:
+            print(f"  [DEBUG] Content analysis history limited")
 
-            decision_text = response.choices[0].message.content
-            decisions = self._parse_llm_decision(decision_text)
+        # LLM content decision making with robust error handling
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                from litellm import completion
+                response = completion(
+                    model=self._get_decision_model(),
+                    messages=[
+                        {"role": "system", "content": "You are a senior security analyst making strategic follow-up decisions. Use the provided context to make intelligent choices."},
+                        {"role": "user", "content": decision_prompt}
+                    ],
+                    temperature=0.4,
+                    max_tokens=800,
+                    timeout=25,  # 25 second timeout for content analysis
+                    max_retries=1
+                )
 
-            # Execute LLM decisions
-            self._execute_content_follow_up(decisions, file_path)
+                decision_text = response.choices[0].message.content
+                decisions = self._parse_llm_decision(decision_text)
 
-        except Exception as e:
-            print(f"  LLM content decision failed: {e}")
-            # Simple fallback based on security risk
-            if security_result["risk_assessment"]["overall_risk"] in ["HIGH", "CRITICAL"]:
-                self._simple_security_followup(file_path, content)
+                # Execute LLM decisions
+                self._execute_content_follow_up(decisions, file_path)
+                break  # Success, exit retry loop
+
+            except KeyboardInterrupt:
+                print(f"  LLM content decision interrupted (attempt {attempt + 1}/{max_retries})")
+                if attempt == max_retries - 1:
+                    print("  Max retries reached, using security-based fallback")
+                    break
+                continue
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"  LLM content decision failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
+
+                if attempt == max_retries - 1:
+                    print("  Max retries reached, using security-based fallback")
+                    # Simple fallback based on security risk
+                    if security_result["risk_assessment"]["overall_risk"] in ["HIGH", "CRITICAL"]:
+                        self._simple_security_followup(file_path, content)
+                    break
+                else:
+                    # Wait before retry
+                    import time
+                    time.sleep(0.5)
+                    continue
 
     def _build_content_context(self, file_path: str, content: str, security_result: Dict) -> str:
         """Build content analysis context for LLM"""
@@ -751,12 +1007,42 @@ SECURITY SUMMARY:
             elif target_type == "directory" and self.context.is_directory_explored(target_path):
                 continue
 
-            # Create appropriate task
+            # Validate and normalize target path before creating task
+            # Handle malformed paths from LLM (e.g., "././openhands/./openhands/core")
+            if target_path.startswith('././'):
+                target_path = target_path[4:]  # Remove "././" prefix
+            elif target_path.startswith('./'):
+                target_path = target_path[2:]  # Remove "./" prefix
+
+            # Remove duplicate directory names (e.g., "openhands/openhands/core" -> "openhands/core")
+            parts = target_path.split('/')
+            if len(parts) > 2:
+                # Check for consecutive duplicate directory names
+                cleaned_parts = []
+                for i, part in enumerate(parts):
+                    if i > 0 and part == parts[i-1]:
+                        continue  # Skip duplicate
+                    cleaned_parts.append(part)
+                if len(cleaned_parts) != len(parts):
+                    target_path = '/'.join(cleaned_parts)
+                    print(f"  [CLEAN] Normalized path: {target_path}")
+
             if target_type == "file":
+                full_path = self.repo_path / target_path
+                if not full_path.exists() or not full_path.is_file():
+                    print(f"  [SKIP] Follow-up file not found: {target_path}")
+                    continue
+
                 task = Task(type=TaskType.READ, target=target_path,
                            priority=85 if priority == "high" else 65 if priority == "medium" else 35)
                 print(f"  [FOLLOW-UP] Analyzing: {target_path.split('/')[-1]} ({reason})")
+
             elif target_type == "directory":
+                full_path = self.repo_path / target_path
+                if not full_path.exists() or not full_path.is_dir():
+                    print(f"  [SKIP] Follow-up directory not found: {target_path}")
+                    continue
+
                 task = Task(type=TaskType.EXPLORE, target=target_path,
                            priority=75 if priority == "high" else 55)
                 print(f"  [FOLLOW-UP] Exploring: {target_path.split('/')[-1]} ({reason})")
@@ -801,44 +1087,78 @@ SECURITY SUMMARY:
             # Get current state
             overview = self.context_manager.get_project_overview()
             analyzed_files = self.context.get_analyzed_files()
-            explored_dirs = self.context.get_explored_directories()
+            explored_dirs = list(self.context.get_explored_directories())
 
-            # STRATEGIC DECISION 1: Check if we need to explore more directories
-            if len(explored_dirs) < 10 and self.task_queue.size() < 15:
-                # Find unexplored but potentially interesting directories
-                for dir_path in explored_dirs:
+            # STRATEGIC DECISION 1: PRIORITY - Find unexplored directories at root level first
+            if self.task_queue.size() < 10:
+                # Get root directories
+                try:
+                    root_list = self.tools.list_directory(".")
+                    if "result" in root_list:
+                        root_dirs = root_list["result"].get("directories", [])
+                        unexplored_root = []
+                        for dir_name in root_dirs:
+                            if (not dir_name.startswith('.') and
+                                dir_name not in explored_dirs and
+                                dir_name not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
+                                unexplored_root.append(dir_name)
+
+                        if unexplored_root:
+                            # Prioritize core directories
+                            priority_dirs = ['src', 'app', 'core', 'main', 'lib', 'openhands', 'containers', 'frontend', 'docs']
+                            for priority_dir in priority_dirs:
+                                if priority_dir in unexplored_root:
+                                    from .core.task import Task, TaskType
+                                    explore_task = Task(type=TaskType.EXPLORE, target=priority_dir, priority=70)
+                                    self.task_queue.add_task(explore_task)
+                                    print(f"  [PRIORITY] Exploring core directory: {priority_dir}")
+                                    return  # Exit after adding one priority task
+
+                            # If no priority dirs, take the first unexplored
+                            from .core.task import Task, TaskType
+                            explore_task = Task(type=TaskType.EXPLORE, target=unexplored_root[0], priority=60)
+                            self.task_queue.add_task(explore_task)
+                            print(f"  [ROOT] Exploring directory: {unexplored_root[0]}")
+                            return  # Exit after adding one task
+                except Exception as e:
+                    print(f"  Error listing root directory: {e}")
+
+            # STRATEGIC DECISION 2: Find unexplored subdirectories in already explored directories
+            if len(explored_dirs) >= 1 and self.task_queue.size() < 15:
+                for parent_dir in explored_dirs[-3:]:  # Check last 3 explored dirs
                     try:
-                        dir_result = self.tools.list_directory(dir_path)
+                        dir_result = self.tools.list_directory(parent_dir)
                         if "result" in dir_result:
                             subdirs = dir_result["result"].get("directories", [])
                             for subdir in subdirs:
                                 if (not subdir.startswith('.') and
                                     subdir not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
-                                    subdir_path = f"{dir_path.rstrip('/')}/{subdir}"
+                                    subdir_path = f"{parent_dir.rstrip('/')}/{subdir}"
                                     if not self.context.is_directory_explored(subdir_path):
                                         from .core.task import Task, TaskType
                                         explore_task = Task(type=TaskType.EXPLORE, target=subdir_path, priority=50)
                                         self.task_queue.add_task(explore_task)
-                                        print(f"  Strategic exploration: {subdir_path.split('/')[-1]}")
-                                        break  # Only add one strategic exploration per reassessment
+                                        print(f"  [SUBDIR] Exploring subdirectory: {subdir_path}")
+                                        return  # Exit after adding one task
                     except Exception as e:
-                        print(f"  Error exploring {dir_path}: {e}")
+                        print(f"  Error exploring {parent_dir}: {e}")
                         continue
 
-            # STRATEGIC DECISION 2: Focus on high-risk areas if any found
+            # STRATEGIC DECISION 3: Focus on high-risk areas if any found
             security_summary = self.context_manager.get_security_summary()
             if security_summary.get('high_risk_count', 0) > 0:
-                print(f"  Focusing on {security_summary['high_risk_count']} high-risk areas")
+                print(f"  [RISK] Focusing on {security_summary['high_risk_count']} high-risk areas")
                 # High-risk focus is already handled in exploration decisions
 
-            # STRATEGIC DECISION 3: Check analysis coverage
+            # STRATEGIC DECISION 4: Check analysis coverage
             total_files = overview.get('total_files', 0)
             coverage = len(analyzed_files) / max(total_files, 1)
             print(f"  Analysis coverage: {coverage:.1%} ({len(analyzed_files)}/{total_files} files)")
 
-            if coverage < 0.3 and self.task_queue.size() < 10:  # Less than 30% coverage
-                print("  Low coverage detected - increasing exploration breadth")
-                # This will be handled by the normal exploration flow
+            # Only add exploration if we have very low coverage and no tasks
+            if coverage < 0.2 and self.task_queue.size() == 0:
+                print("  Very low coverage - will explore more in next cycle")
+                # Don't add tasks here, let normal flow handle it
 
         except Exception as e:
             print(f"Context reassessment failed: {e}")
@@ -1021,7 +1341,3 @@ SECURITY SUMMARY:
             })
 
         return result_template
-
-
-# analyze_repository function removed to prevent circular imports
-# Use Analyzer class directly instead
