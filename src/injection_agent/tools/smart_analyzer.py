@@ -1,19 +1,6 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """
-Streamlined main analyzer - combines all components into efficient analysis system
+Streamlined main analyzer
 """
 
 import json
@@ -30,6 +17,7 @@ from .core.task import Task, TaskType
 from .core.task_queue import TaskQueue
 # Use late imports to avoid circular dependencies
 from .core.execution_logger import ExecutionLogger
+from .prompt_manager import PromptManager
 # Import security_analyzer after LLMClient definition to avoid circular import
 
 
@@ -201,8 +189,8 @@ class Analyzer:
             status = "Success" if success else "Failed"
             print(f"  Status: {status}")
 
-            if result.get("result", {}).get("lines"):
-                print(f"  Content: {result['result']['lines']} lines")
+            if result.get("result", {}).get("lines_read"):
+                print(f"  Content: {result['result']['lines_read']} lines")
 
             if result.get("duration"):
                 print(f"  Duration: {result['duration']:.3f}s")
@@ -214,8 +202,95 @@ class Analyzer:
                 error_msg = result.get("error", "Unknown error")
                 self.task_queue.fail_task(task.task_id, error_msg)
 
-            # Log execution
-            self.execution_logger.log_execution(task, result, result.get("duration", 0))
+            # Log execution with trace format
+            extra_actions = []
+
+            # Collect any additional actions taken during this step
+            if task.type == TaskType.EXPLORE and result.get("success", False):
+                # Add file priority assessment actions
+                files = result.get("result", {}).get("files", [])
+                if files:
+                    extra_actions.append({
+                        "action": "PRIORITY_ASSESSMENT",
+                        "target": f"{len(files)} files",
+                        "result": "LLM analysis completed"
+                    })
+
+                # Get detailed autonomous decisions instead of just count
+                autonomous_decisions = self.context.get_data("autonomous_decisions", 0)
+                if autonomous_decisions > 0:
+                    # Get the actual decisions made during this step
+                    last_decisions = self.context.get_data("last_llm_decisions", [])
+                    if last_decisions:
+                        decision_details = []
+                        for decision in last_decisions[:5]:  # Limit to first 5 for readability
+                            if isinstance(decision, dict):
+                                target = decision.get("path", "unknown")
+                                action_type = decision.get("type", "unknown")
+                                reason = decision.get("reason", "")
+                                decision_details.append(f"{action_type}: {target} ({reason})")
+
+                        if decision_details:
+                            extra_actions.append({
+                                "action": "AUTONOMOUS_DECISIONS",
+                                "target": f"{len(last_decisions)} LLM decisions made",
+                                "result": f"Decisions: {'; '.join(decision_details)}"
+                            })
+                        else:
+                            extra_actions.append({
+                                "action": "AUTONOMOUS_DECISIONS",
+                                "target": f"{autonomous_decisions} LLM decisions",
+                                "result": "Tasks added to queue"
+                            })
+                    else:
+                        extra_actions.append({
+                            "action": "AUTONOMOUS_DECISIONS",
+                            "target": f"{autonomous_decisions} LLM decisions",
+                            "result": "Tasks added to queue"
+                        })
+
+            elif task.type == TaskType.READ and result.get("success", False):
+                # Add content analysis actions
+                extra_actions.append({
+                    "action": "CONTENT_ANALYSIS",
+                    "target": task.target,
+                    "result": "Security analysis completed"
+                })
+
+                # Get detailed follow-up decisions instead of just count
+                autonomous_decisions = self.context.get_data("autonomous_decisions", 0)
+                if autonomous_decisions > 0:
+                    # Get the actual decisions made during this step
+                    last_decisions = self.context.get_data("last_llm_decisions", [])
+                    if last_decisions:
+                        decision_details = []
+                        for decision in last_decisions[:3]:  # Limit to first 3 for readability
+                            if isinstance(decision, dict):
+                                target = decision.get("path", "unknown")
+                                action_type = decision.get("type", "unknown")
+                                reason = decision.get("reason", "")
+                                decision_details.append(f"{action_type}: {target} ({reason})")
+
+                        if decision_details:
+                            extra_actions.append({
+                                "action": "CONTENT_FOLLOW_UP",
+                                "target": f"{len(last_decisions)} follow-up decisions",
+                                "result": f"Follow-ups: {'; '.join(decision_details)}"
+                            })
+                        else:
+                            extra_actions.append({
+                                "action": "CONTENT_FOLLOW_UP",
+                                "target": f"{autonomous_decisions} LLM decisions",
+                                "result": "Follow-up tasks added"
+                            })
+                    else:
+                        extra_actions.append({
+                            "action": "CONTENT_FOLLOW_UP",
+                            "target": f"{autonomous_decisions} LLM decisions",
+                            "result": "Follow-up tasks added"
+                        })
+
+            self.execution_logger.log_execution(task, result, step + 1, extra_actions if extra_actions else None)
             
             # Process results and make autonomous decisions
             if task.type == TaskType.EXPLORE and result.get("success", False):
@@ -230,8 +305,11 @@ class Analyzer:
                         "directories": dirs
                     })
                 
+                # LLM-BASED FILE PRIORITY ASSESSMENT: Use LLM to identify valuable files
+                self._assess_file_priorities_with_llm(files, task.target)
+                
                 # AUTONOMOUS DECISION MAKING: Use discoveries to determine next actions
-                self._make_autonomous_decisions_from_exploration(task.target, files, dirs)
+                self._make_autonomous_decision("exploration", explored_path=task.target, files=files, dirs=dirs)
                         
             elif task.type == TaskType.READ and result.get("success", False):
                 self.context.add_analyzed_file(task.target)
@@ -250,7 +328,7 @@ class Analyzer:
                     analysis_data = {
                         "security_risk": security_result["risk_assessment"]["overall_risk"].lower(),
                         "key_findings": security_result.get("findings", []),
-                        "lines_of_code": result.get("result", {}).get("lines", 0),
+                        "lines_of_code": result.get("result", {}).get("lines_read", 0),
                     }
                     self.context_manager.add_analysis_result(task.target, analysis_data)
                     
@@ -258,12 +336,12 @@ class Analyzer:
                     detailed_findings.append({
                         "file": task.target,
                         "content_preview": file_content[:500] + "..." if len(file_content) > 500 else file_content,
-                        "lines": result.get("result", {}).get("lines", 0),
+                        "lines": result.get("result", {}).get("lines_read", 0),
                         "security_summary": security_result.get("summary", ""),
                     })
             
                     # AUTONOMOUS DECISION MAKING: Use file content to determine next actions
-                    self._make_autonomous_decisions_from_content(task.target, file_content, security_result)
+                    self._make_autonomous_decision("content", file_path=task.target, content=file_content, security_result=security_result)
             
             step += 1
         
@@ -278,48 +356,33 @@ class Analyzer:
         print(f"  Files analyzed: {len(self.context.get_analyzed_files())}")
         print(f"  Security findings: {sum(len(sr.get('findings', [])) for sr in security_findings)}")
         
-        # Get execution statistics
+        # Get execution statistics and trace logs
         execution_stats = self.execution_logger.get_summary()
+        trace_logs = self.execution_logger.get_trace_logs()
         task_stats = self.task_queue.get_stats()
         
-        # Aggregate and organize security findings
-        all_security_findings = []
+        # Create a unique set of security findings (no duplicates)
+        unique_security_findings = {}
+        for sec_result in security_findings:
+            file_path = sec_result["file_path"]
+            if file_path not in unique_security_findings:
+                unique_security_findings[file_path] = sec_result
+
+        # Calculate risk statistics from unique findings
+        risk_stats = {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
         high_risk_files = []
         medium_risk_files = []
 
-        for sec_result in security_findings:
-            findings = sec_result.get("findings", [])
-            all_security_findings.extend(findings)
+        for sec_result in unique_security_findings.values():
             risk_level = sec_result["risk_assessment"]["overall_risk"]
+            risk_stats[risk_level] = risk_stats.get(risk_level, 0) + 1
+
             if risk_level == "HIGH":
                 high_risk_files.append(sec_result["file_path"])
             elif risk_level == "MEDIUM":
                 medium_risk_files.append(sec_result["file_path"])
 
-        # Sort findings by risk level
-        risk_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "UNKNOWN": 3}
-        sorted_security_findings = sorted(security_findings,
-            key=lambda x: risk_order.get(x["risk_assessment"]["overall_risk"], 3))
-
-        # Separate findings by severity for summary
-        high_risk_findings = [f for f in security_findings if f["risk_assessment"]["overall_risk"] == "HIGH"]
-        medium_risk_findings = [f for f in security_findings if f["risk_assessment"]["overall_risk"] == "MEDIUM"]
-
-        # Categorize files by risk level
-        low_risk_files = []
-        no_risk_files = []
-
-        for finding in detailed_findings:
-            risk_level = (finding.get("security_summary", "").split(": ")[-1].split(" ")[0]
-                         if "security_summary" in finding else "UNKNOWN")
-            file_name = finding["file"]
-
-            if risk_level == "LOW":
-                low_risk_files.append(file_name)
-            elif risk_level in ["NO_RISK", "UNKNOWN"]:
-                no_risk_files.append(file_name)
-
-        # Compile final results with enhanced structure
+        # Compile final results with simplified structure (no duplicates)
         final_result = {
             "analysis_info": {
                 "repository_path": str(self.repo_path),
@@ -335,33 +398,27 @@ class Analyzer:
                 "status": "completed" if step < max_steps else "max_steps_reached",
                 "execution_stats": execution_stats,
                 "task_stats": task_stats,
-                "autonomous_decisions": self.context.get_data("autonomous_decisions", 0)
+                "trace_logs": trace_logs,
+                "llm_decisions_made": len([log for log in trace_logs if log.get("extra_actions")])
             },
+
             "discovered_structure": {
-                "explored_directories": self.context.get_explored_directories(),
-                "analyzed_files": self.context.get_analyzed_files(),
+                "explored_directories": list(self.context.get_explored_directories()),
+                "analyzed_files": list(self.context.get_analyzed_files()),
                 "total_directories": len(self.context.get_explored_directories()),
-                "total_files": len(self.context.get_analyzed_files()),
-                "context_summary": self.context.get_summary()
+                "total_files": len(self.context.get_analyzed_files())
             },
+
             "security_analysis": {
-                "findings_by_severity": {
-                    "high": len(high_risk_findings),
-                    "medium": len(medium_risk_findings),
-                    "low": len(low_risk_files),
-                    "none": len(no_risk_files)
+                "summary": {
+                    "total_files_analyzed": len(unique_security_findings),
+                    "risk_distribution": risk_stats,
+                    "high_risk_files": high_risk_files,
+                    "medium_risk_files": medium_risk_files,
+                    "total_findings": sum(len(result.get("findings", [])) for result in unique_security_findings.values())
                 },
-                "high_risk_files": [f["file_path"] for f in high_risk_findings],
-                "medium_risk_files": [f["file_path"] for f in medium_risk_findings],
-                "low_risk_files": low_risk_files,
-                "no_risk_files": no_risk_files,
-                "individual_file_results": sorted_security_findings,
-                "aggregate_findings": all_security_findings,
-                "total_security_findings": len(all_security_findings)
-            },
-            "analysis_findings": detailed_findings,
-            "architectural_insights": self._generate_architectural_insights(detailed_findings),
-            "context_manager_state": self.context_manager.export_context()
+                "detailed_results": list(unique_security_findings.values())
+            }
         }
         
         # Save and return results
@@ -372,21 +429,120 @@ class Analyzer:
     
 
     
-    def _get_file_priority(self, file_path: str) -> int:
-        """Determine analysis priority for files"""
-        path_lower = file_path.lower()
-        
-        if path_lower.endswith('.py'):
-            if 'main' in path_lower or 'agent' in path_lower or 'cli' in path_lower:
-                return 90  # High priority for main files
-            return 70  # Normal priority for Python files
-        elif path_lower.endswith(('.json', '.toml', '.yaml', '.yml')):
-            return 60  # Config files
-        elif path_lower.endswith('.md'):
-            return 30  # Documentation
-        elif path_lower.endswith(('.txt', '.log')):
-            return 20  # Low priority
-        return 0  # Skip other files
+    def _assess_file_priorities_with_llm(self, files: List[str], explored_path: str) -> None:
+        """Use LLM to assess file priorities and add high-value files to task queue"""
+        if not files or len(files) == 0:
+            return
+
+        # Limit to 10 files for LLM analysis to avoid token limits
+        sample_files = files[:10]
+
+        # Build context about the repository and current exploration
+        context = f"""
+REPOSITORY ANALYSIS CONTEXT:
+- Currently exploring: {explored_path}
+- Repository root: {self.repo_path.name}
+- Total files discovered: {len(files)}
+
+FILES TO ANALYZE:
+"""
+        for i, file in enumerate(sample_files, 1):
+            context += f"{i}. {file}\n"
+
+        priority_prompt = PromptManager.get_file_priority_prompt(context, sample_files)
+
+        # Use LLM to get priority assessment
+        model = LLMClient.get_model()
+        messages = [
+            {"role": "system", "content": "You are an expert security analyst selecting the most valuable files for in-depth security analysis."},
+            {"role": "user", "content": priority_prompt}
+        ]
+
+        priority_text = LLMClient.call_llm(
+            model=model,
+            messages=messages,
+            max_tokens=800,
+            temperature=0.3,
+            timeout=20,
+            max_retries=2
+        )
+
+        if priority_text:
+            try:
+                import json
+                start = priority_text.find('{')
+                end = priority_text.rfind('}') + 1
+                if start != -1 and end > start:
+                    json_text = priority_text[start:end]
+                    priorities = json.loads(json_text)
+
+                    # Check if all files are low priority
+                    priority_files = priorities.get("priority_files", [])[:5]  # Limit to 5 files
+                    high_medium_files = [f for f in priority_files if f.get("priority", "low") in ["high", "medium"]]
+                    
+                    if not high_medium_files:
+                        # All files are low priority - suggest exploring subdirectories instead
+                        print(f"  [SKIP] All {len(priority_files)} files are low priority")
+                        print(f"  [RECOMMENDATION] Consider exploring subdirectories for more valuable content")
+                        # Don't add any files, let the system explore deeper
+                        return
+
+                    # Add high and medium priority files to task queue
+                    from .core.task import Task, TaskType
+                    added_count = 0
+
+                    for file_info in high_medium_files:
+                        filename = file_info.get("filename", "")
+                        priority = file_info.get("priority", "low")
+                        reason = file_info.get("reason", "")
+
+                        if filename in sample_files:
+                            # Construct full path
+                            file_path = f"{explored_path.rstrip('/')}/{filename}"
+
+                            # Skip if already analyzed
+                            if self.context.is_file_analyzed(file_path):
+                                continue
+
+                            # Set priority level
+                            task_priority = 90 if priority == "high" else 70
+
+                            # Create read task
+                            read_task = Task(type=TaskType.READ, target=file_path, priority=task_priority)
+                            self.task_queue.add_task(read_task)
+
+                            print(f"  [PRIORITY] Added {priority} priority file: {filename} ({reason})")
+                            added_count += 1
+
+                    print(f"  [SUCCESS] Added {added_count} priority files for analysis")
+
+            except Exception as e:
+                print(f"  [ERROR] Failed to parse LLM priority assessment: {e}")
+                # Fallback to simple priority selection
+                self._fallback_file_priority_selection(sample_files, explored_path)
+        else:
+            print("  [FALLBACK] LLM priority assessment failed, using simple selection")
+            self._fallback_file_priority_selection(sample_files, explored_path)
+
+    def _fallback_file_priority_selection(self, files: List[str], explored_path: str) -> None:
+        """Minimal fallback for file selection when LLM completely fails"""
+        from .core.task import Task, TaskType
+
+        if not files:
+            return
+
+        added_count = 0
+        # Simply take the first few files without any priority logic
+        # This ensures the system can continue but doesn't make intelligent decisions
+        for file in files[:2]:  # Only take 2 files to be conservative
+            file_path = f"{explored_path.rstrip('/')}/{file}"
+            if not self.context.is_file_analyzed(file_path):
+                read_task = Task(type=TaskType.READ, target=file_path, priority=50)
+                self.task_queue.add_task(read_task)
+                print(f"  [MINIMAL-FALLBACK] Added file: {file} (LLM unavailable)")
+                added_count += 1
+
+        print(f"  [MINIMAL-FALLBACK] Added {added_count} files (no LLM intelligence available)")
     
     def _generate_architectural_insights(self, findings: List[Dict]) -> Dict[str, Any]:
         """Generate architectural insights from analysis"""
@@ -464,178 +620,166 @@ class Analyzer:
                 print(f"   Traceback: {traceback.format_exc()}")
 
     def _run_targeted_security_analysis(self) -> List[Dict[str, Any]]:
-        """Run additional targeted security analysis on high-priority files"""
+        """Run LLM-driven targeted security analysis on high-priority files"""
         targeted_findings = []
 
         try:
-            # Look for high-risk patterns in analyzed files
-            for file_path in self.context.get_analyzed_files():
-                if file_path.endswith(('.py', '.js', '.ts', '.java')):
+            # Get analyzed files for security analysis
+            analyzed_files = self.context.get_analyzed_files()
+
+            # Focus on high-risk files first (limit to prevent token overflow)
+            high_risk_files = []
+            for file_path in analyzed_files:
+                if file_path.endswith(('.py', '.js', '.ts', '.java', '.php')):
+                    # Check if this was marked as high risk during initial analysis
+                    if self.context.get_data(f"security_concern_{file_path}", False):
+                        high_risk_files.append(file_path)
+
+            # If no high-risk files, analyze a sample of recent files
+            if not high_risk_files:
+                high_risk_files = analyzed_files[-10:]  # Last 10 analyzed files
+
+            # Limit to 5 files for LLM analysis
+            analysis_files = high_risk_files[:5]
+
+            print(f"  [SECURITY] Analyzing {len(analysis_files)} files for targeted security issues")
+
+            for file_path in analysis_files:
+                try:
                     file_result = self.tools.read_file(file_path)
                     if file_result.get("success") and "content" in file_result.get("result", {}):
                         content = file_result["result"]["content"]
-
-                        # Check for injection vulnerabilities
-                        injection_patterns = [
-                            r"eval\s*\(", r"exec\s*\(", r"execfile\s*\(",
-                            r"subprocess\.(call|Popen|run)", r"os\.system",
-                            r"sqlalchemy\.text", r"cursor\.execute.*\+",
-                            r"innerHTML.*\+", r"document\.write.*\+"
-                        ]
-
-                        for pattern in injection_patterns:
-                            matches = re.finditer(pattern, content, re.IGNORECASE)
-                            for match in matches:
-                                targeted_findings.append({
-                                    "file_path": file_path,
-                                    "vulnerability_type": "Injection Vulnerability",
-                                    "pattern": pattern,
-                                    "line_number": content[:match.start()].count('\n') + 1,
-                                    "severity": "HIGH",
-                                    "description": f"Potential injection vulnerability found with pattern: {pattern}"
-                                })
-
-                        # Check for hardcoded secrets
-                        secret_patterns = [
-                            r"(?i)(api[_-]?key|secret[_-]?key|password|token)[\s]*[=:][\s]*['\"]([^'\"]{10,})['\"]",
-                            r"(?i)(bearer|authorization)[\s]*[=:][\s]*['\"]([^'\"]{10,})['\"]",
-                            r"(?i)(private[_-]?key|ssh[_-]?key)[\s]*[=:][\s]*['\"]([^'\"]{10,})['\"]"
-                        ]
-
-                        for pattern in secret_patterns:
-                            matches = re.finditer(pattern, content, re.IGNORECASE)
-                            for match in matches:
-                                targeted_findings.append({
-                                    "file_path": file_path,
-                                    "vulnerability_type": "Hardcoded Secret",
-                                    "pattern": pattern,
-                                    "line_number": content[:match.start()].count('\n') + 1,
-                                    "severity": "CRITICAL",
-                                    "description": "Potential hardcoded secret or sensitive information found"
-                                })
+                        findings = self._analyze_file_security_with_llm(file_path, content)
+                        targeted_findings.extend(findings)
+                except Exception as e:
+                    print(f"  [ERROR] Failed to analyze {file_path}: {e}")
+                    continue
 
         except Exception as e:
             print(f"Targeted security analysis failed: {e}")
 
         return targeted_findings
 
-    def _make_autonomous_decisions_from_exploration(self, explored_path: str, files: List[str], dirs: List[str]) -> None:
-        """LLM-driven autonomous decisions based on exploration discoveries with full context"""
+    def _analyze_file_security_with_llm(self, file_path: str, content: str) -> List[Dict[str, Any]]:
+        """Use LLM to analyze file content for security vulnerabilities"""
+        findings = []
+
+        # Prepare content sample (limit to avoid token limits)
+        content_sample = content[:2000] + "..." if len(content) > 2000 else content
+
+        # Build security analysis context
+        language = file_path.split('.')[-1] if '.' in file_path else 'unknown'
+        security_context = PromptManager.get_security_analysis_prompt(file_path, content_sample, language)
+
+        # Use LLM for security analysis
+        model = LLMClient.get_model()
+        messages = [
+            {"role": "system", "content": "You are an expert security auditor analyzing code for vulnerabilities. Focus on real security issues, not false positives."},
+            {"role": "user", "content": security_context}
+        ]
+
+        analysis_text = LLMClient.call_llm(
+            model=model,
+            messages=messages,
+            max_tokens=1200,
+            temperature=0.2,
+            timeout=30,
+            max_retries=2
+        )
+
+        if analysis_text:
+            try:
+                import json
+                # Extract JSON from response
+                start = analysis_text.find('{')
+                end = analysis_text.rfind('}') + 1
+                if start != -1 and end > start:
+                    json_text = analysis_text[start:end]
+                    analysis_result = json.loads(json_text)
+
+                    # Process findings
+                    for finding in analysis_result.get("findings", []):
+                        finding_dict = {
+                                    "file_path": file_path,
+                            "vulnerability_type": finding.get("vulnerability_type", "Unknown"),
+                            "severity": finding.get("severity", "MEDIUM"),
+                            "line_number": finding.get("line_number", 0),
+                            "description": finding.get("description", "Security issue detected"),
+                            "code_snippet": finding.get("code_snippet", ""),
+                            "remediation": finding.get("remediation", "Review and fix security issue"),
+                            "exploitability": finding.get("exploitability", "Unknown"),
+                            "analysis_method": "llm_driven"
+                        }
+                        findings.append(finding_dict)
+
+                    print(f"  [SECURITY] Found {len(findings)} issues in {file_path.split('/')[-1]}")
+
+            except Exception as e:
+                print(f"  [ERROR] Failed to parse LLM security analysis for {file_path}: {e}")
+                # Fallback to simple pattern matching
+                findings.extend(self._fallback_security_analysis(file_path, content))
+        else:
+            print(f"  [FALLBACK] LLM security analysis failed for {file_path}, using pattern matching")
+            findings.extend(self._fallback_security_analysis(file_path, content))
+
+        return findings
+
+    def _fallback_security_analysis(self, file_path: str, content: str) -> List[Dict[str, Any]]:
+        """Simple fallback security analysis using pattern matching"""
+        findings = []
+
+        # Basic injection patterns
+        injection_patterns = [
+            (r"eval\s*\(", "Code Injection", "HIGH"),
+            (r"exec\s*\(", "Code Injection", "HIGH"),
+            (r"os\.system", "Command Injection", "HIGH"),
+            (r"subprocess\.(call|Popen|run).*\+", "Command Injection", "HIGH"),
+            (r"cursor\.execute.*\+", "SQL Injection", "HIGH"),
+            (r"innerHTML.*\+", "XSS Vulnerability", "MEDIUM")
+        ]
+
+        # Secret patterns
+        secret_patterns = [
+            (r"(?i)(api[_-]?key|secret[_-]?key|password|token)[\s]*[=:][\s]*['\"]([^'\"]{10,})['\"]", "Hardcoded Secret", "CRITICAL"),
+            (r"(?i)(bearer|authorization)[\s]*[=:][\s]*['\"]([^'\"]{10,})['\"]", "Hardcoded Token", "CRITICAL")
+        ]
+
+        for pattern, vuln_type, severity in injection_patterns + secret_patterns:
+            matches = re.finditer(pattern, content, re.IGNORECASE)
+            for match in matches:
+                findings.append({
+                    "file_path": file_path,
+                    "vulnerability_type": vuln_type,
+                    "severity": severity,
+                    "line_number": content[:match.start()].count('\n') + 1,
+                    "description": f"Potential {vuln_type.lower()} detected",
+                    "analysis_method": "pattern_matching_fallback"
+                })
+
+        return findings
+
+    def _make_autonomous_decision(self, decision_type: str, **kwargs) -> None:
+        """Unified LLM-driven autonomous decision making for exploration and content analysis"""
 
         # Get comprehensive analysis history for LLM context
         history_context = self._build_history_context()
 
-        # Build current exploration context
-        exploration_context = self._build_exploration_context(explored_path, files, dirs)
-
-        # LLM-driven decision making with full context
-        # Get repository structure for better exploration decisions
-        try:
-            # Find unexplored areas for depth-first exploration
-            all_dirs = []
-            explored_dirs = list(self.context.get_explored_directories())
-
-            # Get subdirectories of explored directories
-            unexplored_areas = []
-            for explored_dir in explored_dirs:
-                try:
-                    dir_path = self.repo_path / explored_dir
-                    if dir_path.exists():
-                        for subitem in dir_path.iterdir():
-                            if subitem.is_dir() and not subitem.name.startswith('.') and not subitem.name.startswith('__'):
-                                subdir_path = f"{explored_dir}/{subitem.name}"
-                                if subdir_path not in explored_dirs:
-                                    unexplored_areas.append(subdir_path)
-                except:
-                    continue
-
-            # Also look for important top-level directories that haven't been explored
-            root_unexplored = []
-            for item in (self.repo_path / ".").iterdir():
-                if item.is_dir() and not item.name.startswith('.'):
-                    dir_name = item.name
-                    if dir_name not in explored_dirs and dir_name not in ['node_modules', '__pycache__', '.git', 'build', 'dist']:
-                        root_unexplored.append(dir_name)
-
-        except Exception:
-            unexplored_areas = []
-            root_unexplored = []
-
-        decision_prompt = f"""You are an intelligent security analysis agent making strategic exploration decisions.
-
-{history_context}
-
-{exploration_context}
-
-REPOSITORY EXPLORATION CONTEXT:
-- Unexplored subdirectories: {unexplored_areas[:15]}
-- Unexplored root directories: {root_unexplored[:10]}
-
-IMPORTANT: You can ONLY select from the following existing items in the CURRENT DIRECTORY:
-
-CURRENT DIRECTORY FILES (available for analysis):
-{chr(10).join(f"- {f}" for f in files[:20])}
-
-CURRENT DIRECTORY SUBDIRECTORIES (available for exploration):
-{chr(10).join(f"- {d}" for d in dirs[:20])}
-
-HIERARCHICAL DECISION FRAMEWORK:
-
-UNDERSTAND YOUR OPTIONS:
-- CURRENT DIRECTORY FILES: {chr(10).join(f"- {f}" for f in files[:20])}
-- CURRENT DIRECTORY SUBDIRECTORIES: {chr(10).join(f"- {d}" for d in dirs[:20])}
-- UNEXPLORED ROOT DIRECTORIES: {chr(10).join(f"- {d}" for d in root_unexplored[:10])}
-- UNEXPLORED SUBDIRECTORIES: {chr(10).join(f"- {d}" for d in unexplored_areas[:10])}
-
-DECISION HIERARCHY (FOLLOW THIS ORDER STRICTLY):
-
-LEVEL 1 - CURRENT DIRECTORY FILES (HIGHEST PRIORITY):
-- If CURRENT DIRECTORY contains important files (main.py, __init__.py, config files, security-critical files)
-- READ THESE FILES FIRST before any exploration
-- This establishes the foundation of what this directory does
-
-LEVEL 2 - CURRENT DIRECTORY SUBDIRECTORIES (SECOND PRIORITY):
-- Only if CURRENT DIRECTORY has NO important files to read
-- Explore SUBDIRECTORIES WITHIN the current directory
-- This allows depth-first exploration of the current scope
-
-LEVEL 3 - UNEXPLORED ROOT DIRECTORIES (THIRD PRIORITY):
-- Only if CURRENT DIRECTORY has NO important files AND NO subdirectories
-- Look for unexplored directories at ROOT level
-- Prefer directories that appear to be core application components
-
-LEVEL 4 - UNEXPLORED SUBDIRECTORIES (FOURTH PRIORITY):
-- Only if all above levels are exhausted
-- Consider subdirectories in already explored directories
-- This is for completing depth exploration
-
-CRITICAL DECISION RULES:
-- ALWAYS check LEVEL 1 first - read important current files if available
-- ONLY move to LEVEL 2 if LEVEL 1 has nothing important
-- ONLY move to LEVEL 3 if both LEVEL 1 and LEVEL 2 are empty
-- ONLY use LEVEL 4 as last resort
-- NEVER guess paths - only choose from the lists above
-- Maximum 3 targets total
-
-Respond with JSON:
-{{
-    "analysis_targets": [
-        {{
-            "type": "file|directory",
-            "path": "EXACT path from the lists above",
-            "priority": "high|medium|low",
-            "reason": "why important - be specific"
-        }}
-    ],
-    "exploration_strategy": "read current important files first, then explore",
-    "architecture_focus": "focus on current scope before expanding"
-}}
-
-SELECTION RULES:
-- Maximum 3 targets
-- Prioritize files in current directory over exploration
-- Only explore if no important files remain in current directory
-- Use EXACT paths from the provided lists above"""
+        # Build decision-specific context and prompt
+        if decision_type == "exploration":
+            decision_context = self._build_exploration_decision_context(**kwargs)
+            decision_prompt = self._build_exploration_decision_prompt(history_context, decision_context)
+            validation_func = self._validate_decisions
+            execution_func = self._execute_llm_decisions
+            fallback_func = self._simple_fallback_exploration
+        elif decision_type == "content":
+            decision_context = self._build_content_decision_context(**kwargs)
+            decision_prompt = self._build_content_decision_prompt(history_context, decision_context)
+            validation_func = self._validate_decisions
+            execution_func = self._execute_content_follow_up
+            fallback_func = lambda *args: self._simple_security_followup(kwargs.get('file_path', ''), kwargs.get('content', ''))
+        else:
+            print(f"  [ERROR] Unknown decision type: {decision_type}")
+            return
 
         # Debug: Check if history context is available
         if history_context and len(history_context.strip()) > 50:
@@ -653,22 +797,252 @@ SELECTION RULES:
         decision_text = LLMClient.call_llm(
             model=model,
             messages=messages,
-            max_tokens=1000,
+            max_tokens=1000 if decision_type == "exploration" else 800,
             temperature=0.4,
-            timeout=30,
-            max_retries=3
+            timeout=30 if decision_type == "exploration" else 25,
+            max_retries=3 if decision_type == "exploration" else 2
         )
 
         if decision_text:
             decisions = self._parse_llm_decision(decision_text)
-            # Validate LLM decisions against available items
-            validated_decisions = self._validate_llm_decisions(decisions, files, dirs)
-            # Execute validated LLM decisions
-            self._execute_llm_decisions(validated_decisions, explored_path)
+
+            # Validate decisions based on type and track execution results
+            if decision_type == "exploration":
+                validated_decisions = validation_func(decisions, kwargs.get('files', []),
+                                                     kwargs.get('dirs', []),
+                                                     decision_type="exploration")
+                tasks_added = execution_func(validated_decisions, kwargs.get('explored_path', ''))
+                # Store the count of autonomous decisions and the actual decisions
+                current_count = self.context.get_data("autonomous_decisions", 0)
+                self.context.set_data("autonomous_decisions", current_count + tasks_added)
+                # Store the actual decisions for trace logging
+                if validated_decisions and validated_decisions.get("analysis_targets"):
+                    self.context.set_data("last_llm_decisions", validated_decisions["analysis_targets"])
+            elif decision_type == "content":
+                current_dir_files, current_dir_dirs, unexplored_subdirs = self._get_content_decision_data()
+                validated_decisions = validation_func(decisions, current_dir_files,
+                                                     current_dir_dirs, unexplored_subdirs,
+                                                     decision_type="content")
+                tasks_added = execution_func(validated_decisions, kwargs.get('file_path', ''))
+                # Store the count of autonomous decisions and the actual decisions
+                current_count = self.context.get_data("autonomous_decisions", 0)
+                self.context.set_data("autonomous_decisions", current_count + tasks_added)
+                # Store the actual decisions for trace logging
+                if validated_decisions and validated_decisions.get("follow_up_targets"):
+                    self.context.set_data("last_llm_decisions", validated_decisions["follow_up_targets"])
         else:
-            print("  Max retries reached, using fallback")
-            # Fallback to simple exploration
-            self._simple_fallback_exploration(explored_path, files, dirs)
+            print(f"  [LLM_ERROR] Max retries reached for {decision_type} decision - skipping autonomous decision making")
+            print("  Analysis will continue with current task queue")
+
+    def _build_exploration_decision_context(self, explored_path: str, files: List[str], dirs: List[str]) -> Dict:
+        """Build exploration decision context"""
+        # Get repository structure for better exploration decisions
+        unexplored_areas = []
+        root_unexplored = []
+
+        try:
+            explored_dirs = list(self.context.get_explored_directories())
+
+            # Get subdirectories of explored directories
+            for explored_dir in explored_dirs:
+                try:
+                    dir_path = self.repo_path / explored_dir
+                    if dir_path.exists():
+                        for subitem in dir_path.iterdir():
+                            if subitem.is_dir() and not subitem.name.startswith('.') and not subitem.name.startswith('__'):
+                                subdir_path = f"{explored_dir}/{subitem.name}"
+                                if subdir_path not in explored_dirs:
+                                    unexplored_areas.append(subdir_path)
+                except:
+                    continue
+
+            # Also look for important top-level directories that haven't been explored
+            for item in (self.repo_path / ".").iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    dir_name = item.name
+                    if dir_name not in explored_dirs and dir_name not in ['node_modules', '__pycache__', '.git', 'build', 'dist']:
+                        root_unexplored.append(dir_name)
+
+        except Exception:
+            pass
+
+        return {
+            "explored_path": explored_path,
+            "files": files,
+            "dirs": dirs,
+            "unexplored_areas": unexplored_areas,
+            "root_unexplored": root_unexplored
+        }
+
+    def _build_content_context(self, file_path: str, content: str, security_result: Dict) -> str:
+        """Build content analysis context for LLM"""
+        context = f"""CURRENT FILE ANALYSIS:
+- File: {file_path}
+- Risk Level: {security_result['risk_assessment']['overall_risk']}
+- Security Score: {security_result['risk_assessment']['risk_score']}/100
+- Findings: {len(security_result.get('findings', []))}
+
+CONTENT PREVIEW (first 500 chars):
+{content[:500]}{'...' if len(content) > 500 else ''}
+
+SECURITY SUMMARY:
+"""
+
+        # Add security findings
+        findings_list = security_result.get('findings', [])
+        for finding in findings_list[:3]:  # Limit for context
+            severity = getattr(finding, 'severity', 'unknown')
+            description = getattr(finding, 'description', 'No description')
+            context += f"- {severity.upper()}: {description}\n"
+
+        return context
+
+    def _build_content_decision_context(self, file_path: str, content: str, security_result: Dict) -> Dict:
+        """Build content decision context"""
+        content_context = self._build_content_context(file_path, content, security_result)
+
+        # Get current repository structure
+        current_dir_files, current_dir_dirs, unexplored_subdirs = self._get_content_decision_data()
+
+        # Generate related files recommendations for LLM context
+        related_files_recommendations = self._generate_related_files_recommendations(file_path, content)
+
+        return {
+            "file_path": file_path,
+            "content_context": content_context,
+            "current_dir_files": current_dir_files,
+            "current_dir_dirs": current_dir_dirs,
+            "unexplored_subdirs": unexplored_subdirs,
+            "related_files_recommendations": related_files_recommendations
+        }
+
+    def _get_content_decision_data(self) -> tuple:
+        """Get data needed for content-based decisions"""
+        current_dir_files = []
+        current_dir_dirs = []
+        unexplored_subdirs = []
+
+        try:
+            for item in (self.repo_path / ".").iterdir():
+                if item.is_file():
+                    current_dir_files.append(item.name)
+                elif item.is_dir() and not item.name.startswith('.'):
+                    current_dir_dirs.append(item.name)
+
+            # Get recently explored directories for deeper exploration
+            explored_dirs = list(self.context.get_explored_directories())
+            for explored_dir in explored_dirs:
+                try:
+                    dir_path = self.repo_path / explored_dir
+                    if dir_path.exists():
+                        for subitem in dir_path.iterdir():
+                            if subitem.is_dir() and not subitem.name.startswith('.') and not subitem.name.startswith('__'):
+                                subdir_path = f"{explored_dir}/{subitem.name}"
+                                if subdir_path not in explored_dirs:
+                                    unexplored_subdirs.append(subdir_path)
+                except:
+                    continue
+        except Exception:
+            pass
+
+        return current_dir_files, current_dir_dirs, unexplored_subdirs
+
+    def _build_exploration_decision_prompt(self, history_context: str, context: Dict) -> str:
+        """Build exploration decision prompt"""
+        exploration_context = self._build_exploration_context(context['explored_path'], context['files'], context['dirs'])
+        return PromptManager.get_exploration_decision_prompt(
+            history_context=history_context,
+            exploration_context=exploration_context,
+            unexplored_areas=context['unexplored_areas'],
+            root_unexplored=context['root_unexplored'],
+            files=context['files'],
+            dirs=context['dirs']
+        )
+
+    def _build_content_decision_prompt(self, history_context: str, context: Dict) -> str:
+        """Build content decision prompt"""
+        return PromptManager.get_content_decision_prompt(
+            history_context=history_context,
+            content_context=context['content_context'],
+            current_dir_files=context['current_dir_files'],
+            current_dir_dirs=context['current_dir_dirs'],
+            unexplored_subdirs=context['unexplored_subdirs'],
+            related_files_recommendations=context.get('related_files_recommendations')
+        )
+
+    def _generate_related_files_recommendations(self, file_path: str, content: str) -> List[str]:
+        """Generate related files recommendations for LLM decision making"""
+        recommendations = []
+
+        try:
+            # Get current directory and file info
+            current_dir = str(Path(file_path).parent)
+            file_extension = Path(file_path).suffix.lower()
+
+            # 1. Extract imports and dependencies
+            if file_extension in ['.py', '.js', '.ts', '.java']:
+                import_related = self._find_related_files_from_content(content)
+                recommendations.extend(import_related)
+
+            # 2. Find configuration files that might be referenced
+            config_related = self._find_referenced_files_from_config(content)
+            recommendations.extend(config_related)
+
+            # 3. Find related files in the same directory
+            try:
+                dir_path = self.repo_path / current_dir
+                if dir_path.exists():
+                    for item in dir_path.iterdir():
+                        if item.is_file():
+                            item_name = item.name
+                            item_path = f"{current_dir}/{item_name}" if current_dir != "." else item_name
+
+                            # Skip already analyzed files
+                            if self.context.is_file_analyzed(item_path):
+                                continue
+
+                            # Recommend related files based on patterns
+                            if any(pattern in item_name.lower() for pattern in [
+                                'config', 'settings', 'auth', 'security', 'database', 'db',
+                                'model', 'schema', 'api', 'endpoint', 'route', 'controller'
+                            ]):
+                                recommendations.append(item_path)
+
+                            # Recommend files with similar names or same base name
+                            current_base = Path(file_path).stem
+                            if Path(item_name).stem == current_base and item_name != Path(file_path).name:
+                                recommendations.append(item_path)
+
+            except Exception as e:
+                print(f"  [DEBUG] Error finding directory files: {e}")
+
+            # 4. Find potential entry points or main files
+            if current_dir != ".":
+                try:
+                    # Look for main files in the same directory
+                    for item in (self.repo_path / current_dir).iterdir():
+                        if item.is_file():
+                            item_name = item.name.lower()
+                            if any(main_file in item_name for main_file in [
+                                'main.py', 'app.py', 'server.py', '__init__.py',
+                                'index.js', 'app.js', 'server.js'
+                            ]):
+                                item_path = f"{current_dir}/{item.name}" if current_dir != "." else item.name
+                                if not self.context.is_file_analyzed(item_path):
+                                    recommendations.append(item_path)
+                except Exception as e:
+                    print(f"  [DEBUG] Error finding main files: {e}")
+
+            # Remove duplicates and limit results
+            recommendations = list(dict.fromkeys(recommendations))  # Remove duplicates while preserving order
+            recommendations = [rec for rec in recommendations if rec and not self.context.is_file_analyzed(rec)]
+            recommendations = recommendations[:10]  # Limit to 10 recommendations
+
+        except Exception as e:
+            print(f"  [ERROR] Failed to generate related files recommendations: {e}")
+            recommendations = []
+
+        return recommendations
 
     def _build_history_context(self) -> str:
         """Build comprehensive analysis history context for LLM to prevent duplicates and invalid paths"""
@@ -779,85 +1153,97 @@ DISCOVERED FILES:
             print(f"Failed to parse LLM decision: {e}")
             return {"analysis_targets": [], "strategy_explanation": "parsing_failed"}
 
-    def _validate_llm_decisions(self, decisions: Dict, available_files: List[str], available_dirs: List[str]) -> Dict:
-        """Validate LLM decisions against available items to prevent guessing non-existent files"""
-        if not decisions or "analysis_targets" not in decisions:
-            return {"analysis_targets": [], "strategy_explanation": "no_valid_targets"}
+    def _validate_decisions(self, decisions: Dict, available_files: List[str] = None,
+                          available_dirs: List[str] = None, unexplored_subdirs: List[str] = None,
+                          decision_type: str = "exploration") -> Dict:
+        """Unified validation for LLM decisions against available items with improved path handling"""
+        available_files = available_files or []
+        available_dirs = available_dirs or []
+        unexplored_subdirs = unexplored_subdirs or []
+
+        # Determine target key based on decision type
+        target_key = "analysis_targets" if decision_type == "exploration" else "follow_up_targets"
+
+        if not decisions or target_key not in decisions:
+            return {target_key: [], "strategy_explanation": "no_valid_targets"}
 
         valid_targets = []
-        original_count = len(decisions["analysis_targets"])
+        original_count = len(decisions[target_key])
 
-        for target in decisions["analysis_targets"]:
+        for target in decisions[target_key]:
             target_path = target.get("path", "")
             target_type = target.get("type", "")
 
-            # Extract filename/directory name from path
-            path_parts = target_path.split('/')
+            # Normalize path for better matching
+            normalized_path = target_path.strip('/')
+            path_parts = normalized_path.split('/')
             item_name = path_parts[-1] if path_parts else ""
 
-            # Validate based on type
+            # Validate based on type with improved path matching
+            is_valid = False
+
             if target_type == "file":
-                # Check if file exists in available files list
+                # Check if file exists in available files or can be found in unexplored subdirs
                 if item_name in available_files:
-                    valid_targets.append(target)
-                    print(f"  [VALID] File target accepted: {item_name}")
+                    is_valid = True
+                    print(f"  [VALID] {decision_type.title()} file target accepted: {item_name}")
                 else:
-                    print(f"  [REJECT] File not in available list: {item_name} (available: {available_files[:5]}...)")
+                    # Check if file might be in an unexplored subdirectory
+                    for subdir in unexplored_subdirs:
+                        if normalized_path.startswith(subdir) or subdir in normalized_path:
+                            is_valid = True
+                            print(f"  [VALID] {decision_type.title()} file target in unexplored area: {item_name}")
+                            break
+
+                if not is_valid:
+                    # Final check: verify file actually exists
+                    full_path = self.repo_path / normalized_path
+                    if full_path.exists() and full_path.is_file() and not self.context.is_file_analyzed(normalized_path):
+                        is_valid = True
+                        print(f"  [VALID] {decision_type.title()} file exists and not analyzed: {item_name}")
+
+                if not is_valid:
+                    print(f"  [REJECT] {decision_type.title()} file not found or already analyzed: {item_name}")
+
             elif target_type == "directory":
-                # Check if directory exists in available directories list
+                # Check if directory exists in available directories or unexplored subdirs
                 if item_name in available_dirs:
-                    valid_targets.append(target)
-                    print(f"  [VALID] Directory target accepted: {item_name}")
+                    is_valid = True
+                    print(f"  [VALID] {decision_type.title()} directory target accepted: {item_name}")
                 else:
-                    print(f"  [REJECT] Directory not in available list: {item_name} (available: {available_dirs[:5]}...)")
+                    # Check if directory is in unexplored subdirs
+                    for subdir in unexplored_subdirs:
+                        subdir_normalized = subdir.strip('/')
+                        if (item_name == subdir_normalized or
+                            normalized_path == subdir_normalized or
+                            normalized_path.endswith(subdir_normalized) or
+                            subdir_normalized.endswith(normalized_path)):
+                            is_valid = True
+                            # Use the original path from unexplored list
+                            target["path"] = subdir
+                            print(f"  [VALID] {decision_type.title()} directory in unexplored areas: {item_name}")
+                            break
+
+                if not is_valid:
+                    # Final check: verify directory actually exists and is not explored
+                    full_path = self.repo_path / normalized_path
+                    if full_path.exists() and full_path.is_dir() and not self.context.is_directory_explored(normalized_path):
+                        is_valid = True
+                        print(f"  [VALID] {decision_type.title()} directory exists and not explored: {item_name}")
+
+                if not is_valid:
+                    print(f"  [REJECT] {decision_type.title()} directory not found or already explored: {item_name}")
             else:
                 print(f"  [REJECT] Invalid target type: {target_type}")
 
-        validated_decisions = decisions.copy()
-        validated_decisions["analysis_targets"] = valid_targets
-
-        print(f"  [VALIDATION] {len(valid_targets)}/{original_count} targets validated")
-
-        return validated_decisions
-
-    def _validate_content_decisions(self, decisions: Dict, available_files: List[str], available_dirs: List[str], unexplored_subdirs: List[str]) -> Dict:
-        """Validate content follow-up decisions against available items"""
-        if not decisions or "follow_up_targets" not in decisions:
-            return {"follow_up_targets": [], "exploration_strategy": "no_valid_targets"}
-
-        valid_targets = []
-        original_count = len(decisions["follow_up_targets"])
-
-        for target in decisions["follow_up_targets"]:
-            target_path = target.get("path", "")
-            target_type = target.get("type", "")
-
-            # Extract filename/directory name from path
-            path_parts = target_path.split('/')
-            item_name = path_parts[-1] if path_parts else ""
-
-            # Validate based on type
-            if target_type == "file":
-                # Check if file exists in available files list or unexplored subdirs (for referenced files)
-                if item_name in available_files or any(item_name in subdir for subdir in unexplored_subdirs):
-                    valid_targets.append(target)
-                    print(f"  [VALID] Content follow-up file accepted: {item_name}")
-                else:
-                    print(f"  [REJECT] Content follow-up file not found: {item_name}")
-            elif target_type == "directory":
-                # Check if directory exists in available directories or unexplored subdirs
-                if item_name in available_dirs or item_name in unexplored_subdirs:
-                    valid_targets.append(target)
-                    print(f"  [VALID] Content follow-up directory accepted: {item_name}")
-                else:
-                    print(f"  [REJECT] Content follow-up directory not found: {item_name}")
-            else:
-                print(f"  [REJECT] Invalid follow-up target type: {target_type}")
+            if is_valid:
+                valid_targets.append(target)
 
         validated_decisions = decisions.copy()
-        validated_decisions["follow_up_targets"] = valid_targets
+        validated_decisions[target_key] = valid_targets
 
-        print(f"  [CONTENT VALIDATION] {len(valid_targets)}/{original_count} follow-up targets validated")
+        validation_type = "CONTENT" if decision_type == "content" else "EXPLORATION"
+        print(f"  [{validation_type} VALIDATION] {len(valid_targets)}/{original_count} targets validated")
 
         return validated_decisions
 
@@ -932,7 +1318,8 @@ DISCOVERED FILES:
 
                 task = Task(type=TaskType.READ, target=target_path,
                            priority=90 if priority == "high" else 60 if priority == "medium" else 30)
-                print(f"  [FILE] Analyzing: {target_path.split('/')[-1]} ({reason})")
+                action_desc = f"Analyzing: {target_path.split('/')[-1]} ({reason})"
+                print(f"  [FILE] {action_desc}")
 
             elif target_type == "directory":
                 full_path = self.repo_path / target_path
@@ -942,7 +1329,8 @@ DISCOVERED FILES:
 
                 task = Task(type=TaskType.EXPLORE, target=target_path,
                            priority=80 if priority == "high" else 50)
-                print(f"  [DIR] Exploring: {target_path.split('/')[-1]} ({reason})")
+                action_desc = f"Exploring: {target_path.split('/')[-1]} ({reason})"
+                print(f"  [DIR] {action_desc}")
             else:
                 continue
 
@@ -954,197 +1342,7 @@ DISCOVERED FILES:
                 break
 
         print(f"  [SUCCESS] Added {executed_count} tasks based on LLM decisions")
-
-    def _simple_fallback_exploration(self, explored_path: str, files: List[str], dirs: List[str]) -> None:
-        """Simple fallback exploration when LLM fails"""
-        from .core.task import Task, TaskType
-
-        print("  Using simple fallback exploration strategy")
-
-        # Add a few files to analyze
-        added_count = 0
-        for file in files:
-            if added_count >= 3:
-                break
-
-            file_path = f"{explored_path.rstrip('/')}/{file}"
-            if not self.context.is_file_analyzed(file_path) and not file.startswith('.'):
-                task = Task(type=TaskType.READ, target=file_path, priority=50)
-                self.task_queue.add_task(task)
-                added_count += 1
-                print(f"  [FALLBACK] Analyzing: {file}")
-
-        # Add one directory to explore
-        for dir_name in dirs:
-            if not dir_name.startswith('.') and dir_name not in ['node_modules', '__pycache__', '.git']:
-                dir_path = f"{explored_path.rstrip('/')}/{dir_name}"
-                if not self.context.is_directory_explored(dir_path):
-                    task = Task(type=TaskType.EXPLORE, target=dir_path, priority=50)
-                    self.task_queue.add_task(task)
-                    print(f"  [FALLBACK] Exploring: {dir_name}")
-                    break
-
-    def _make_autonomous_decisions_from_content(self, file_path: str, content: str, security_result: Dict) -> None:
-        """LLM-driven autonomous decisions based on file content analysis with full context"""
-
-        # Get analysis history for context
-        history_context = self._build_history_context()
-
-        # Build content analysis context
-        content_context = self._build_content_context(file_path, content, security_result)
-
-        # Get current repository structure for better decision making
-        try:
-            current_dir_files = []
-            current_dir_dirs = []
-            for item in (self.repo_path / ".").iterdir():
-                if item.is_file():
-                    current_dir_files.append(item.name)
-                elif item.is_dir() and not item.name.startswith('.'):
-                    current_dir_dirs.append(item.name)
-
-            # Get recently explored directories for deeper exploration
-            explored_dirs = list(self.context.get_explored_directories())
-            unexplored_subdirs = []
-            for explored_dir in explored_dirs:
-                try:
-                    dir_path = self.repo_path / explored_dir
-                    if dir_path.exists():
-                        for subitem in dir_path.iterdir():
-                            if subitem.is_dir() and not subitem.name.startswith('.') and not subitem.name.startswith('__'):
-                                subdir_path = f"{explored_dir}/{subitem.name}"
-                                if subdir_path not in explored_dirs:
-                                    unexplored_subdirs.append(subdir_path)
-                except:
-                    continue
-        except Exception:
-            current_dir_files = []
-            current_dir_dirs = []
-            unexplored_subdirs = []
-
-        # LLM-driven decision making with repository awareness
-        decision_prompt = f"""You are an intelligent security analysis agent. Make follow-up decisions based on file analysis and current repository structure.
-
-{history_context}
-
-{content_context}
-
-CURRENT REPOSITORY CONTEXT:
-- Root files: {current_dir_files[:10]}
-- Root directories: {current_dir_dirs[:10]}
-- Unexplored subdirectories: {unexplored_subdirs[:10]}
-
-IMPORTANT: You can ONLY select from EXISTING items. Based on current analysis, decide what follow-up actions to take.
-
-AVAILABLE ACTIONS (you can ONLY choose these):
-1. Files referenced by current file (imports, includes, dependencies) - MUST EXIST
-2. Unexplored subdirectories from the repository - MUST EXIST
-3. Security-related files in current directory - MUST EXIST
-4. Configuration files that might be related - MUST EXIST
-
-FOLLOW-UP DECISION HIERARCHY:
-
-LEVEL 1 - IMPORTED/REFERENCED FILES (HIGHEST PRIORITY):
-- If current file IMPORTS or REFERENCES other files
-- Read those imported files to understand dependencies
-- This helps build complete understanding of the codebase
-
-LEVEL 2 - UNEXPLORED SUBDIRECTORIES (SECOND PRIORITY):
-- Only if NO imported files to read
-- Explore subdirectories to continue depth-first analysis
-- This expands the current scope of analysis
-
-LEVEL 3 - SECURITY-RELATED FILES (THIRD PRIORITY):
-- Only if NO imported files AND NO subdirectories to explore
-- Look for security configuration or policy files
-- This focuses on security aspects of the current directory
-
-LEVEL 4 - OTHER CONFIGURATION FILES (FOURTH PRIORITY):
-- Only if all above levels are exhausted
-- Consider other configuration files in current directory
-- This is for completeness of analysis
-
-CRITICAL FOLLOW-UP RULES:
-- ALWAYS prioritize IMPORTED files first (Level 1)
-- ONLY move to Level 2 if no imported files exist
-- ONLY move to Level 3 if both Level 1 and Level 2 are empty
-- ONLY use Level 4 as last resort
-- NEVER guess paths - only choose from existing items
-- If no valid follow-ups available, return empty targets array
-- Maximum 2 targets total
-
-Respond with JSON:
-{{
-    "follow_up_targets": [
-        {{
-            "type": "file|directory",
-            "path": "EXACT existing path only",
-            "priority": "high|medium|low",
-            "reason": "why follow up - be specific"
-        }}
-    ],
-    "exploration_strategy": "focus on existing items",
-    "security_focus": "what security aspects to investigate further"
-}}
-"""
-
-        # Debug: Check if history context is available for content analysis
-        content_history = self._build_history_context()
-        if content_history and len(content_history.strip()) > 50:
-            print(f"  [DEBUG] Content analysis history available ({len(content_history)} chars)")
-        else:
-            print(f"  [DEBUG] Content analysis history limited")
-
-        # Use centralized LLM client for content analysis
-        model = LLMClient.get_model()
-        messages = [
-            {"role": "system", "content": "You are a senior security analyst making strategic follow-up decisions. Use the provided context to make intelligent choices."},
-            {"role": "user", "content": decision_prompt}
-        ]
-
-        decision_text = LLMClient.call_llm(
-            model=model,
-            messages=messages,
-            max_tokens=800,
-            temperature=0.4,
-            timeout=25,
-            max_retries=2
-        )
-
-        if decision_text:
-            decisions = self._parse_llm_decision(decision_text)
-            # Validate content follow-up decisions
-            validated_decisions = self._validate_content_decisions(decisions, current_dir_files, current_dir_dirs, unexplored_subdirs)
-            # Execute validated LLM decisions
-            self._execute_content_follow_up(validated_decisions, file_path)
-        else:
-            print("  Max retries reached, using security-based fallback")
-            # Simple fallback based on security risk
-            if security_result["risk_assessment"]["overall_risk"] in ["HIGH", "CRITICAL"]:
-                self._simple_security_followup(file_path, content)
-
-    def _build_content_context(self, file_path: str, content: str, security_result: Dict) -> str:
-        """Build content analysis context for LLM"""
-        context = f"""CURRENT FILE ANALYSIS:
-- File: {file_path}
-- Risk Level: {security_result['risk_assessment']['overall_risk']}
-- Security Score: {security_result['risk_assessment']['risk_score']}/100
-- Findings: {len(security_result.get('findings', []))}
-
-CONTENT PREVIEW (first 500 chars):
-{content[:500]}{'...' if len(content) > 500 else ''}
-
-SECURITY SUMMARY:
-"""
-
-        # Add security findings
-        findings_list = security_result.get('findings', [])
-        for finding in findings_list[:3]:  # Limit for context
-            severity = getattr(finding, 'severity', 'unknown')
-            description = getattr(finding, 'description', 'No description')
-            context += f"- {severity.upper()}: {description}\n"
-
-        return context
+        return executed_count
 
     def _execute_content_follow_up(self, decisions: Dict, current_file_path: str) -> None:
         """Execute follow-up decisions from content analysis"""
@@ -1153,7 +1351,7 @@ SECURITY SUMMARY:
         targets = decisions.get("follow_up_targets", [])
         executed_count = 0
 
-        print(f"  Executing content follow-up: {decisions.get('investigation_strategy', 'No strategy')}")
+        print(f"  Executing content follow-up: {decisions.get('exploration_strategy', 'No strategy')}")
 
         for target in targets:
             target_path = target.get("path", "")
@@ -1201,7 +1399,13 @@ SECURITY SUMMARY:
 
                 task = Task(type=TaskType.READ, target=target_path,
                            priority=85 if priority == "high" else 65 if priority == "medium" else 35)
-                print(f"  [FOLLOW-UP] Analyzing: {target_path.split('/')[-1]} ({reason})")
+
+                # Generate LLM-driven action description
+                action_desc = f"LLM-directed analysis of {target_path.split('/')[-1]}"
+                if reason:
+                    action_desc += f" - {reason}"
+
+                print(f"  [CONTENT-FOLLOW] {action_desc}")
 
             elif target_type == "directory":
                 full_path = self.repo_path / target_path
@@ -1211,7 +1415,13 @@ SECURITY SUMMARY:
 
                 task = Task(type=TaskType.EXPLORE, target=target_path,
                            priority=75 if priority == "high" else 55)
-                print(f"  [FOLLOW-UP] Exploring: {target_path.split('/')[-1]} ({reason})")
+
+                # Generate LLM-driven action description
+                action_desc = f"LLM-directed exploration of {target_path.split('/')[-1]}"
+                if reason:
+                    action_desc += f" - {reason}"
+
+                print(f"  [CONTENT-FOLLOW] {action_desc}")
             else:
                 continue
 
@@ -1223,6 +1433,38 @@ SECURITY SUMMARY:
                 break
 
         print(f"  [SUCCESS] Added {executed_count} follow-up tasks")
+        return executed_count
+
+    def _simple_fallback_exploration(self, explored_path: str, files: List[str], dirs: List[str]) -> None:
+        """Simple fallback exploration when LLM fails"""
+        from .core.task import Task, TaskType
+
+        print("  Using simple fallback exploration strategy")
+
+        # Add a few files to analyze
+        added_count = 0
+        for file in files:
+            if added_count >= 3:
+                break
+
+            file_path = f"{explored_path.rstrip('/')}/{file}"
+            if not self.context.is_file_analyzed(file_path) and not file.startswith('.'):
+                task = Task(type=TaskType.READ, target=file_path, priority=50)
+                self.task_queue.add_task(task)
+                added_count += 1
+                print(f"  [FALLBACK] Analyzing: {file}")
+
+        # Add one directory to explore
+        for dir_name in dirs:
+            if not dir_name.startswith('.') and dir_name not in ['node_modules', '__pycache__', '.git']:
+                dir_path = f"{explored_path.rstrip('/')}/{dir_name}"
+                if not self.context.is_directory_explored(dir_path):
+                    task = Task(type=TaskType.EXPLORE, target=dir_path, priority=50)
+                    self.task_queue.add_task(task)
+                    print(f"  [FALLBACK] Exploring: {dir_name}")
+                    break
+
+
 
     def _simple_security_followup(self, file_path: str, content: str) -> None:
         """Simple fallback for high-risk files"""
@@ -1246,88 +1488,207 @@ SECURITY SUMMARY:
                 print(f"  [SUCCESS] Added {added_count} security-related files for analysis")
 
     def _autonomous_context_reassessment(self) -> None:
-        """Periodically reassess overall context and make strategic decisions"""
+        """LLM-driven strategic context reassessment"""
         try:
-            print("Autonomous Context Reassessment...")
+            print("LLM-Driven Context Reassessment...")
 
-            # Get current state
+            # Get comprehensive analysis history for LLM context
+            history_context = self._build_history_context()
+
+            # Gather current state information
             overview = self.context_manager.get_project_overview()
-            analyzed_files = self.context.get_analyzed_files()
+            analyzed_files = list(self.context.get_analyzed_files())
             explored_dirs = list(self.context.get_explored_directories())
+            security_summary = self.context_manager.get_security_summary()
 
-            # STRATEGIC DECISION 1: PRIORITY - Find unexplored directories at root level first
-            if self.task_queue.size() < 10:
+            # Calculate coverage
+            total_files = overview.get('total_files', 0)
+            coverage = len(analyzed_files) / max(total_files, 1)
+
+            current_state = {
+                'analyzed_files': len(analyzed_files),
+                'explored_dirs': len(explored_dirs),
+                'high_risk_count': security_summary.get('high_risk_count', 0),
+                'total_files': total_files,
+                'coverage': coverage
+            }
+
+            # Find unexplored areas
+            unexplored_root_dirs = []
+            unexplored_subdirs = []
+
+            try:
                 # Get root directories
-                try:
-                    root_list = self.tools.list_directory(".")
-                    if "result" in root_list:
-                        root_dirs = root_list["result"].get("directories", [])
-                        unexplored_root = []
-                        for dir_name in root_dirs:
-                            if (not dir_name.startswith('.') and
-                                dir_name not in explored_dirs and
-                                dir_name not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
-                                unexplored_root.append(dir_name)
+                root_list = self.tools.list_directory(".")
+                if "result" in root_list:
+                    root_dirs = root_list["result"].get("directories", [])
+                    for dir_name in root_dirs:
+                        if (not dir_name.startswith('.') and
+                            dir_name not in explored_dirs and
+                            dir_name not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
+                            unexplored_root_dirs.append(dir_name)
 
-                        if unexplored_root:
-                            # Prioritize core directories
-                            priority_dirs = ['src', 'app', 'core', 'main', 'lib', 'openhands', 'containers', 'frontend', 'docs']
-                            for priority_dir in priority_dirs:
-                                if priority_dir in unexplored_root:
-                                    from .core.task import Task, TaskType
-                                    explore_task = Task(type=TaskType.EXPLORE, target=priority_dir, priority=70)
-                                    self.task_queue.add_task(explore_task)
-                                    print(f"  [PRIORITY] Exploring core directory: {priority_dir}")
-                                    return  # Exit after adding one priority task
-
-                            # If no priority dirs, take the first unexplored
-                            from .core.task import Task, TaskType
-                            explore_task = Task(type=TaskType.EXPLORE, target=unexplored_root[0], priority=60)
-                            self.task_queue.add_task(explore_task)
-                            print(f"  [ROOT] Exploring directory: {unexplored_root[0]}")
-                            return  # Exit after adding one task
-                except Exception as e:
-                    print(f"  Error listing root directory: {e}")
-
-            # STRATEGIC DECISION 2: Find unexplored subdirectories in already explored directories
-            if len(explored_dirs) >= 1 and self.task_queue.size() < 15:
-                for parent_dir in explored_dirs[-3:]:  # Check last 3 explored dirs
+                # Get unexplored subdirectories
+                for explored_dir in explored_dirs:
                     try:
-                        dir_result = self.tools.list_directory(parent_dir)
+                        dir_result = self.tools.list_directory(explored_dir)
                         if "result" in dir_result:
                             subdirs = dir_result["result"].get("directories", [])
                             for subdir in subdirs:
                                 if (not subdir.startswith('.') and
-                                    subdir not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
-                                    subdir_path = f"{parent_dir.rstrip('/')}/{subdir}"
+                                        subdir not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
+                                    subdir_path = f"{explored_dir.rstrip('/')}/{subdir}"
                                     if not self.context.is_directory_explored(subdir_path):
-                                        from .core.task import Task, TaskType
-                                        explore_task = Task(type=TaskType.EXPLORE, target=subdir_path, priority=50)
-                                        self.task_queue.add_task(explore_task)
-                                        print(f"  [SUBDIR] Exploring subdirectory: {subdir_path}")
-                                        return  # Exit after adding one task
-                    except Exception as e:
-                        print(f"  Error exploring {parent_dir}: {e}")
+                                        unexplored_subdirs.append(subdir_path)
+                    except:
                         continue
+            except Exception as e:
+                print(f"  Error gathering unexplored areas: {e}")
 
-            # STRATEGIC DECISION 3: Focus on high-risk areas if any found
-            security_summary = self.context_manager.get_security_summary()
-            if security_summary.get('high_risk_count', 0) > 0:
-                print(f"  [RISK] Focusing on {security_summary['high_risk_count']} high-risk areas")
-                # High-risk focus is already handled in exploration decisions
+            # Use LLM for strategic decision making
+            model = LLMClient.get_model()
+            reassessment_prompt = PromptManager.get_context_reassessment_prompt(
+                history_context=history_context,
+                current_state=current_state,
+                unexplored_root_dirs=unexplored_root_dirs,
+                unexplored_subdirs=unexplored_subdirs,
+                task_queue_size=self.task_queue.size()
+            )
 
-            # STRATEGIC DECISION 4: Check analysis coverage
-            total_files = overview.get('total_files', 0)
-            coverage = len(analyzed_files) / max(total_files, 1)
-            print(f"  Analysis coverage: {coverage:.1%} ({len(analyzed_files)}/{total_files} files)")
+            messages = [
+                {"role": "system", "content": "You are a senior security strategist making intelligent analysis decisions based on current context and strategic goals."},
+                {"role": "user", "content": reassessment_prompt}
+            ]
 
-            # Only add exploration if we have very low coverage and no tasks
-            if coverage < 0.2 and self.task_queue.size() == 0:
-                print("  Very low coverage - will explore more in next cycle")
-                # Don't add tasks here, let normal flow handle it
+            decision_text = LLMClient.call_llm(
+                model=model,
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.3,
+                timeout=30,
+                max_retries=2
+            )
+
+            if decision_text:
+                try:
+                    import json
+                    start = decision_text.find('{')
+                    end = decision_text.rfind('}') + 1
+                    if start != -1 and end > start:
+                        json_text = decision_text[start:end]
+                        decisions = json.loads(json_text)
+
+                        # Execute LLM-driven strategic decisions
+                        self._execute_reassessment_decisions(decisions, unexplored_root_dirs, unexplored_subdirs)
+                        print("  [SUCCESS] LLM-driven context reassessment completed")
+
+                except Exception as e:
+                    print(f"  [ERROR] Failed to parse LLM reassessment: {e}")
+                    # Fallback to minimal exploration if needed
+                    if self.task_queue.size() == 0 and unexplored_root_dirs:
+                        self._minimal_fallback_exploration(unexplored_root_dirs)
+            else:
+                print("  [LLM_ERROR] Context reassessment failed, using minimal fallback")
+                if self.task_queue.size() == 0 and unexplored_root_dirs:
+                    self._minimal_fallback_exploration(unexplored_root_dirs)
 
         except Exception as e:
-            print(f"Context reassessment failed: {e}")
+            print(f"LLM-driven context reassessment failed: {e}")
+
+    def _execute_reassessment_decisions(self, decisions: Dict, unexplored_root_dirs: List[str],
+                                      unexplored_subdirs: List[str]) -> None:
+        """Execute strategic decisions from LLM reassessment"""
+        from .core.task import Task, TaskType
+
+        next_actions = decisions.get("next_actions", [])
+        executed_count = 0
+
+        print(f"  [STRATEGY] {decisions.get('strategy_explanation', 'Strategic planning completed')}")
+
+        for action in next_actions:
+            action_type = action.get("action", "")
+            target = action.get("target", "")
+            priority = action.get("priority", "medium")
+            reason = action.get("reason", "")
+
+            # Improved target validation with better path resolution
+            valid_target = False
+            normalized_target = target.strip('/')
+
+            if action_type == "explore_directory":
+                # Check against unexplored directories with better path matching
+                for unexplored in unexplored_root_dirs + unexplored_subdirs:
+                    unexplored_normalized = unexplored.strip('/')
+                    if (normalized_target == unexplored_normalized or
+                        normalized_target.endswith(unexplored_normalized) or
+                        unexplored_normalized.endswith(normalized_target)):
+                        valid_target = True
+                        target = unexplored  # Use the original path from unexplored list
+                        break
+
+                # Additional check: verify directory actually exists and is not explored
+                if valid_target:
+                    full_path = self.repo_path / target
+                    if not full_path.exists() or not full_path.is_dir():
+                        valid_target = False
+                        print(f"  [SKIP] Directory does not exist: {target}")
+                    elif self.context.is_directory_explored(target):
+                        valid_target = False
+                        print(f"  [SKIP] Directory already explored: {target}")
+
+            elif action_type == "analyze_file":
+                # For file analysis, validate that the file exists and hasn't been analyzed
+                full_path = self.repo_path / normalized_target
+                if full_path.exists() and full_path.is_file():
+                    if not self.context.is_file_analyzed(normalized_target):
+                        valid_target = True
+                        target = normalized_target
+                    else:
+                        print(f"  [SKIP] File already analyzed: {normalized_target}")
+                else:
+                    print(f"  [SKIP] File does not exist: {normalized_target}")
+
+            if not valid_target:
+                print(f"  [SKIP] Target not valid for execution: {target}")
+                continue
+
+            # Create appropriate task with improved error handling
+            try:
+                if action_type == "explore_directory":
+                    task = Task(type=TaskType.EXPLORE, target=target,
+                               priority=80 if priority == "high" else 60 if priority == "medium" else 40)
+                    print(f"  [EXPLORE] {target} ({reason})")
+                elif action_type == "analyze_file":
+                    task = Task(type=TaskType.READ, target=target,
+                               priority=85 if priority == "high" else 65 if priority == "medium" else 45)
+                    print(f"  [ANALYZE] {target} ({reason})")
+
+                self.task_queue.add_task(task)
+                executed_count += 1
+
+            except Exception as e:
+                print(f"  [ERROR] Failed to create task for {target}: {e}")
+                continue
+
+            if executed_count >= 3:  # Respect LLM's limit
+                break
+
+        print(f"  [SUCCESS] Added {executed_count} strategic tasks")
+
+    def _minimal_fallback_exploration(self, unexplored_root_dirs: List[str]) -> None:
+        """Minimal fallback when LLM completely fails - explore first available directory"""
+        if not unexplored_root_dirs:
+            return
+
+        from .core.task import Task, TaskType
+
+        # Simply take the first directory without any priority logic
+        # This ensures continuation but doesn't make intelligent strategic decisions
+        target = unexplored_root_dirs[0]
+
+        task = Task(type=TaskType.EXPLORE, target=target, priority=50)
+        self.task_queue.add_task(task)
+        print(f"  [MINIMAL-FALLBACK] Exploring directory: {target} (LLM unavailable)")
 
 
     def _find_related_files_from_content(self, content: str) -> List[str]:
@@ -1440,7 +1801,7 @@ SECURITY SUMMARY:
                 print(f"Related file investigation failed: {e}")
     
     def _execute_task(self, task) -> Dict[str, Any]:
-        """Execute a single task and return standardized result format"""
+        """Execute a single task and return standardized result format with improved path resolution"""
         import time
         start_time = time.time()
 
@@ -1455,23 +1816,105 @@ SECURITY SUMMARY:
         }
 
         try:
+            # Improved path resolution and validation
+            target_path = task.target.strip('/')
+            full_path = self.repo_path / target_path
+
+            # Skip execution if target path is obviously invalid (like hardcoded example paths)
+            if self._is_invalid_target_path(target_path):
+                duration = time.time() - start_time
+                result_template.update({
+                    "success": False,
+                    "duration": duration,
+                    "error": f"Invalid target path: {target_path} (appears to be example/placeholder path)"
+                })
+                return result_template
+
             if task.type == TaskType.EXPLORE:
-                print(f"    Executing EXPLORE on: {task.target}")
+                print(f"    Executing EXPLORE on: {target_path}")
                 print(f"    Repo path: {self.repo_path}")
-                print(f"    Target path exists: {(self.repo_path / task.target).exists()}")
-                print(f"    Target path is dir: {(self.repo_path / task.target).is_dir()}")
-                result_data = self.tools.list_directory(task.target)
+                print(f"    Full target path: {full_path}")
+                print(f"    Target path exists: {full_path.exists()}")
+                print(f"    Target path is dir: {full_path.is_dir() if full_path.exists() else 'N/A'}")
+
+                # Additional validation for exploration
+                if not full_path.exists():
+                    duration = time.time() - start_time
+                    result_template.update({
+                        "success": False,
+                        "duration": duration,
+                        "error": f"Directory not found: {target_path}"
+                    })
+                    return result_template
+
+                if not full_path.is_dir():
+                    duration = time.time() - start_time
+                    result_template.update({
+                        "success": False,
+                        "duration": duration,
+                        "error": f"Path is not a directory: {target_path}"
+                    })
+                    return result_template
+
+                result_data = self.tools.list_directory(target_path)
                 print(f"    List directory result: {result_data}")
+
             elif task.type == TaskType.READ:
-                result_data = self.tools.read_file(task.target)
+                print(f"    Executing READ on: {target_path}")
+                print(f"    Full path: {full_path}")
+
+                # Additional validation for file reading
+                if not full_path.exists():
+                    duration = time.time() - start_time
+                    result_template.update({
+                        "success": False,
+                        "duration": duration,
+                        "error": f"File not found: {target_path}"
+                    })
+                    return result_template
+
+                if not full_path.is_file():
+                    duration = time.time() - start_time
+                    result_template.update({
+                        "success": False,
+                        "duration": duration,
+                        "error": f"Path is not a file: {target_path}"
+                    })
+                    return result_template
+
+                # Check file size to avoid reading very large files
+                file_size = full_path.stat().st_size
+                if file_size > 50 * 1024 * 1024:  # 50MB limit
+                    duration = time.time() - start_time
+                    result_template.update({
+                        "success": False,
+                        "duration": duration,
+                        "error": f"File too large to read: {target_path} ({file_size} bytes)"
+                    })
+                    return result_template
+
+                result_data = self.tools.read_file(target_path)
+
             elif task.type == TaskType.ANALYZE:
-                file_result = self.tools.read_file(task.target)
+                print(f"    Executing ANALYZE on: {target_path}")
+
+                # First check if file exists and is readable
+                if not full_path.exists() or not full_path.is_file():
+                    duration = time.time() - start_time
+                    result_template.update({
+                        "success": False,
+                        "duration": duration,
+                        "error": f"File not found or not readable: {target_path}"
+                    })
+                    return result_template
+
+                file_result = self.tools.read_file(target_path)
                 if "error" not in file_result:
                     try:
                         # Use LLM for code snippet analysis
                         llm_analysis = self.llm.analyze_code_snippet(
                             file_result["content"],
-                            task.target
+                            target_path
                         )
                         result_data = {
                             "file_info": file_result,
@@ -1507,3 +1950,20 @@ SECURITY SUMMARY:
             })
 
         return result_template
+
+    def _is_invalid_target_path(self, target_path: str) -> bool:
+        """Check if a target path is obviously invalid (like example/placeholder paths)"""
+        invalid_patterns = [
+            "path/to/",  # Generic example paths
+            "example/",  # Example directories
+            "placeholder",  # Placeholder text
+            "dummy",  # Dummy files
+            "sample",  # Sample files
+            "template/file",  # Template paths
+            "your/file",  # Generic placeholders
+            "some/file",  # Generic placeholders
+            "any/file",  # Generic placeholders
+        ]
+
+        target_lower = target_path.lower()
+        return any(pattern in target_lower for pattern in invalid_patterns)
