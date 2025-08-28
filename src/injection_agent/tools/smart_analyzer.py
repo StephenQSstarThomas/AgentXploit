@@ -20,7 +20,7 @@ import json
 import os
 import re
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 from dataclasses import asdict
 
@@ -30,8 +30,73 @@ from .core.task import Task, TaskType
 from .core.task_queue import TaskQueue
 # Use late imports to avoid circular dependencies
 from .core.execution_logger import ExecutionLogger
-from .analyzers.security_analyzer import SecurityAnalyzer
-from .injection_specific.security_scanner import scan_directory
+# Import security_analyzer after LLMClient definition to avoid circular import
+
+
+class LLMClient:
+    """Centralized LLM client with robust error handling and retry logic"""
+
+    @staticmethod
+    def call_llm(model: str, messages: List[Dict], max_tokens: int = 1000,
+                 temperature: float = 0.1, timeout: int = 30, max_retries: int = 3) -> Optional[str]:
+        """
+        Centralized LLM call with error handling and retry logic
+
+        Args:
+            model: LLM model name
+            messages: Chat messages
+            max_tokens: Maximum tokens in response
+            temperature: Sampling temperature
+            timeout: Request timeout in seconds
+            max_retries: Maximum number of retries
+
+        Returns:
+            LLM response text or None if all retries failed
+        """
+        import time
+        from litellm import completion
+
+        for attempt in range(max_retries):
+            try:
+                response = completion(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout=timeout,
+                    max_retries=1  # LiteLLM internal retry
+                )
+
+                content = response.choices[0].message.content
+                if content and len(content.strip()) > 0:
+                    return content.strip()
+
+            except KeyboardInterrupt:
+                print(f"  LLM call interrupted (attempt {attempt + 1}/{max_retries})")
+                if attempt == max_retries - 1:
+                    return None
+                continue
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"  LLM call failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
+
+                if attempt == max_retries - 1:
+                    return None
+                else:
+                    time.sleep(1)  # Wait before retry
+                    continue
+
+        return None
+
+    @staticmethod
+    def get_model() -> str:
+        """Get configured LLM model"""
+        try:
+            from ..config import settings
+            return settings.DEFAULT_MODEL
+        except:
+            return "gpt-4o"
 
 
 def serialize_for_json(obj):
@@ -50,18 +115,26 @@ class Analyzer:
     """Main analysis coordinator - streamlined and efficient"""
     
     def __init__(self, repo_path: str):
+        """Initialize analyzer with streamlined setup"""
         self.repo_path = Path(repo_path).resolve()
+
+        # Initialize core components
         from .core.core_tools import EnhancedFileReader
         self.tools = EnhancedFileReader(repo_path)
         self.context = AnalysisContext()
         self.task_queue = TaskQueue()
-        # Initialize context manager with late import
+
+        # Initialize context management (late import to avoid circular dependencies)
         from .planning.analysis_context_manager import AnalysisContextManager
         from .planning.context_tools import initialize_analysis_context
-        
         self.context_manager = AnalysisContextManager(str(repo_path))
         initialize_analysis_context(str(repo_path))
+
+        # Initialize supporting components
         self.execution_logger = ExecutionLogger()
+
+        # Initialize security analyzer (late import to avoid circular dependency)
+        from .analyzers.security_analyzer import SecurityAnalyzer
         self.security_analyzer = SecurityAnalyzer()
 
         # Initialize LLM helper for code analysis
@@ -75,8 +148,11 @@ class Analyzer:
 
         # Get max_steps from settings if not provided
         if max_steps is None:
-            from ..config import settings
-            max_steps = getattr(settings, 'MAX_STEPS', 50)
+            try:
+                from ..config import settings
+                max_steps = getattr(settings, 'MAX_STEPS', 50)
+            except ImportError:
+                max_steps = 50
 
         # Initialize with minimal starting point - just explore the root
         from .core.task import Task, TaskType
@@ -206,35 +282,33 @@ class Analyzer:
         execution_stats = self.execution_logger.get_summary()
         task_stats = self.task_queue.get_stats()
         
-        # Aggregate security findings
+        # Aggregate and organize security findings
         all_security_findings = []
         high_risk_files = []
+
         for sec_result in security_findings:
-            all_security_findings.extend(sec_result.get("findings", []))
+            findings = sec_result.get("findings", [])
+            all_security_findings.extend(findings)
             if sec_result["risk_assessment"]["overall_risk"] == "HIGH":
                 high_risk_files.append(sec_result["file_path"])
-        
-        # Sort security findings by severity (high -> medium -> low)
-        sorted_security_findings = []
-        high_risk_findings = [f for f in security_findings if f["risk_assessment"]["overall_risk"] == "HIGH"]
-        medium_risk_findings = [f for f in security_findings if f["risk_assessment"]["overall_risk"] == "MEDIUM"]
-        low_risk_findings = [f for f in security_findings if f["risk_assessment"]["overall_risk"] == "LOW"]
 
-        sorted_security_findings.extend(high_risk_findings)
-        sorted_security_findings.extend(medium_risk_findings)
-        sorted_security_findings.extend(low_risk_findings)
+        # Sort findings by risk level
+        risk_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "UNKNOWN": 3}
+        sorted_security_findings = sorted(security_findings,
+            key=lambda x: risk_order.get(x["risk_assessment"]["overall_risk"], 3))
 
-        # Group low-risk files for compact display
+        # Categorize files by risk level
         low_risk_files = []
         no_risk_files = []
 
         for finding in detailed_findings:
-            risk_level = finding.get("security_summary", "").split(": ")[-1].split(" ")[0] if "security_summary" in finding else "UNKNOWN"
+            risk_level = (finding.get("security_summary", "").split(": ")[-1].split(" ")[0]
+                         if "security_summary" in finding else "UNKNOWN")
             file_name = finding["file"]
 
             if risk_level == "LOW":
                 low_risk_files.append(file_name)
-            elif risk_level == "NO_RISK" or risk_level == "UNKNOWN":
+            elif risk_level in ["NO_RISK", "UNKNOWN"]:
                 no_risk_files.append(file_name)
 
         # Compile final results with enhanced structure
@@ -282,10 +356,10 @@ class Analyzer:
             "context_manager_state": self.context_manager.export_context()
         }
         
-        # Save results if requested
+        # Save and return results
         if save_results:
             self._save_analysis_results(final_result)
-        
+
         return final_result
     
 
@@ -537,52 +611,30 @@ SELECTION RULES:
         else:
             print(f"  [DEBUG] History context limited or empty")
 
-        # LLM decision making with robust error handling
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                # Use LLM for intelligent decision making
-                from litellm import completion
-                response = completion(
-                    model=self._get_decision_model(),
-                    messages=[
-                        {"role": "system", "content": "You are a senior security analyst making strategic analysis decisions. Use the provided context to make intelligent choices."},
-                        {"role": "user", "content": decision_prompt}
-                    ],
-                    temperature=0.4,
-                    max_tokens=1000,
-                    timeout=30,  # 30 second timeout
-                    max_retries=1  # LiteLLM internal retry
-                )
+        # Use centralized LLM client for robust decision making
+        model = LLMClient.get_model()
+        messages = [
+            {"role": "system", "content": "You are a senior security analyst making strategic analysis decisions. Use the provided context to make intelligent choices."},
+            {"role": "user", "content": decision_prompt}
+        ]
 
-                decision_text = response.choices[0].message.content
-                decisions = self._parse_llm_decision(decision_text)
+        decision_text = LLMClient.call_llm(
+            model=model,
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.4,
+            timeout=30,
+            max_retries=3
+        )
 
-                # Execute LLM decisions
-                self._execute_llm_decisions(decisions, explored_path)
-                break  # Success, exit retry loop
-
-            except KeyboardInterrupt:
-                print(f"  LLM decision interrupted (attempt {attempt + 1}/{max_retries})")
-                if attempt == max_retries - 1:
-                    print("  Max retries reached, using fallback")
-                    break
-                continue
-
-            except Exception as e:
-                error_msg = str(e)
-                print(f"  LLM decision failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
-
-                if attempt == max_retries - 1:
-                    print("  Max retries reached, using fallback")
-                    # Fallback to simple exploration
-                    self._simple_fallback_exploration(explored_path, files, dirs)
-                    break
-                else:
-                    # Wait before retry
-                    import time
-                    time.sleep(1)
-                    continue
+        if decision_text:
+            decisions = self._parse_llm_decision(decision_text)
+            # Execute LLM decisions
+            self._execute_llm_decisions(decisions, explored_path)
+        else:
+            print("  Max retries reached, using fallback")
+            # Fallback to simple exploration
+            self._simple_fallback_exploration(explored_path, files, dirs)
 
     def _build_history_context(self) -> str:
         """Build comprehensive analysis history context for LLM to prevent duplicates and invalid paths"""
@@ -675,13 +727,7 @@ DISCOVERED FILES:
 
         return context
 
-    def _get_decision_model(self) -> str:
-        """Get the model to use for decision making"""
-        try:
-            from ..config import settings
-            return settings.DEFAULT_MODEL
-        except:
-            return "gpt-4o"
+
 
     def _parse_llm_decision(self, decision_text: str) -> Dict:
         """Parse LLM decision response"""
@@ -909,52 +955,31 @@ CRITICAL RULES:
         else:
             print(f"  [DEBUG] Content analysis history limited")
 
-        # LLM content decision making with robust error handling
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                from litellm import completion
-                response = completion(
-                    model=self._get_decision_model(),
-                    messages=[
-                        {"role": "system", "content": "You are a senior security analyst making strategic follow-up decisions. Use the provided context to make intelligent choices."},
-                        {"role": "user", "content": decision_prompt}
-                    ],
-                    temperature=0.4,
-                    max_tokens=800,
-                    timeout=25,  # 25 second timeout for content analysis
-                    max_retries=1
-                )
+        # Use centralized LLM client for content analysis
+        model = LLMClient.get_model()
+        messages = [
+            {"role": "system", "content": "You are a senior security analyst making strategic follow-up decisions. Use the provided context to make intelligent choices."},
+            {"role": "user", "content": decision_prompt}
+        ]
 
-                decision_text = response.choices[0].message.content
-                decisions = self._parse_llm_decision(decision_text)
+        decision_text = LLMClient.call_llm(
+            model=model,
+            messages=messages,
+            max_tokens=800,
+            temperature=0.4,
+            timeout=25,
+            max_retries=2
+        )
 
-                # Execute LLM decisions
-                self._execute_content_follow_up(decisions, file_path)
-                break  # Success, exit retry loop
-
-            except KeyboardInterrupt:
-                print(f"  LLM content decision interrupted (attempt {attempt + 1}/{max_retries})")
-                if attempt == max_retries - 1:
-                    print("  Max retries reached, using security-based fallback")
-                    break
-                continue
-
-            except Exception as e:
-                error_msg = str(e)
-                print(f"  LLM content decision failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
-
-                if attempt == max_retries - 1:
-                    print("  Max retries reached, using security-based fallback")
-                    # Simple fallback based on security risk
-                    if security_result["risk_assessment"]["overall_risk"] in ["HIGH", "CRITICAL"]:
-                        self._simple_security_followup(file_path, content)
-                    break
-                else:
-                    # Wait before retry
-                    import time
-                    time.sleep(0.5)
-                    continue
+        if decision_text:
+            decisions = self._parse_llm_decision(decision_text)
+            # Execute LLM decisions
+            self._execute_content_follow_up(decisions, file_path)
+        else:
+            print("  Max retries reached, using security-based fallback")
+            # Simple fallback based on security risk
+            if security_result["risk_assessment"]["overall_risk"] in ["HIGH", "CRITICAL"]:
+                self._simple_security_followup(file_path, content)
 
     def _build_content_context(self, file_path: str, content: str, security_result: Dict) -> str:
         """Build content analysis context for LLM"""

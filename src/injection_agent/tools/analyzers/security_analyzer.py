@@ -83,17 +83,11 @@ class SecurityAnalyzer:
     
     def _analyze_with_llm(self, file_path: str, content: str) -> Dict[str, Any]:
         """Use LLM to perform comprehensive security analysis"""
-        # LLM-powered security analysis with robust error handling
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                from litellm import completion
+        # Use centralized LLM client for security analysis
+        lines = content.split('\n')
+        file_extension = file_path.split('.')[-1] if '.' in file_path else 'unknown'
 
-                # Prepare analysis prompt
-                lines = content.split('\n')
-                file_extension = file_path.split('.')[-1] if '.' in file_path else 'unknown'
-
-                prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
+        prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
 
 File: {file_path}
 Lines: {len(lines)}
@@ -125,70 +119,39 @@ Format your response as JSON with this structure:
     "summary": "brief summary"
 }}"""
 
-                # Get model from settings
-                try:
-                    from ...config import settings
-                    model_name = settings.LLM_HELPER_MODEL
-                except:
-                    model_name = "gpt-4o"
+        # Use centralized LLM client
+        from ..smart_analyzer import LLMClient
+        result_text = LLMClient.call_llm(
+            model=LLMClient.get_model(),
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1000,
+            temperature=0.1,
+            timeout=30,
+            max_retries=3
+        )
 
-                response = completion(
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=1000,
-                    temperature=0.1,
-                    timeout=30,  # 30 second timeout
-                    max_retries=1  # LiteLLM internal retry
-                )
-
-                result_text = response.choices[0].message.content
-
-                # Try to parse JSON response
-                try:
-                    import json
-                    return json.loads(result_text)
-                except:
-                    # If JSON parsing fails, return structured response
-                    return {
-                        "overall_risk": "MEDIUM",
-                        "risk_score": 50,
-                        "findings": [],
-                        "summary": result_text[:500],
-                        "llm_raw_response": result_text
-                    }
-
-            except KeyboardInterrupt:
-                print(f"  Security analysis interrupted (attempt {attempt + 1}/{max_retries})")
-                if attempt == max_retries - 1:
-                    break
-                continue
-
-            except Exception as e:
-                error_msg = str(e)
-                print(f"  Security analysis failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
-
-                if attempt == max_retries - 1:
-                    return {
-                        "overall_risk": "UNKNOWN",
-                        "risk_score": 0,
-                        "findings": [],
-                        "summary": f"LLM analysis failed after {max_retries} attempts: {error_msg}",
-                        "error": error_msg
-                    }
-                else:
-                    # Wait before retry
-                    import time
-                    time.sleep(1)
-                    continue
-
-        # All retries failed
-        return {
-            "overall_risk": "UNKNOWN",
-            "risk_score": 0,
-            "findings": [],
-            "summary": "LLM analysis completely failed after all retries",
-            "error": "Max retries exceeded"
-        }
+        if result_text:
+            # Try to parse JSON response
+            try:
+                import json
+                return json.loads(result_text)
+            except:
+                # If JSON parsing fails, return structured response
+                return {
+                    "overall_risk": "MEDIUM",
+                    "risk_score": 50,
+                    "findings": [],
+                    "summary": result_text[:500],
+                    "llm_raw_response": result_text
+                }
+        else:
+            return {
+                "overall_risk": "UNKNOWN",
+                "risk_score": 0,
+                "findings": [],
+                "summary": "LLM analysis failed - no response received",
+                "error": "LLM call failed"
+            }
 
     def _extract_findings_from_llm(self, file_path: str, content: str, llm_analysis: Dict) -> List[SecurityFinding]:
         """Extract security findings from LLM analysis with enhanced LLM-driven decision making"""
@@ -229,10 +192,7 @@ Format your response as JSON with this structure:
 
     def _classify_finding_with_llm(self, finding_data: Dict, content: str) -> str:
         """Use LLM to classify the finding type based on content context"""
-        try:
-            from litellm import completion
-
-            prompt = f"""Classify this security finding based on the code context:
+        prompt = f"""Classify this security finding based on the code context:
 
 Finding: {finding_data.get('description', '')}
 Code snippet: {finding_data.get('code_snippet', '')}
@@ -241,31 +201,27 @@ Classify as one of: injection_risk, authentication_issue, data_exposure, configu
 
 Respond with just the classification:"""
 
-            response = completion(
-                model=self._get_llm_model(),
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=50,
-                temperature=0.1
-            )
+        response_text = LLMClient.call_llm(
+            model=LLMClient.get_model(),
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=50,
+            temperature=0.1,
+            timeout=15,
+            max_retries=2
+        )
 
-            classification = response.choices[0].message.content.strip().lower()
-
+        if response_text:
+            classification = response_text.strip().lower()
             # Map to valid finding types
             valid_types = ["injection_risk", "authentication_issue", "data_exposure", "configuration_risk", "code_quality"]
             if classification in valid_types:
                 return classification
-            else:
-                return finding_data.get("type", "general_security_issue")
 
-        except Exception:
-            return finding_data.get("type", "general_security_issue")
+        return finding_data.get("type", "general_security_issue")
 
     def _assess_severity_with_llm(self, finding_data: Dict, content: str, file_path: str) -> str:
         """Use LLM to assess severity with full context"""
-        try:
-            from litellm import completion
-
-            prompt = f"""Assess the severity of this security finding considering:
+        prompt = f"""Assess the severity of this security finding considering:
 
 File: {file_path}
 Finding: {finding_data.get('description', '')}
@@ -281,32 +237,28 @@ Consider:
 
 Respond with just the severity level:"""
 
-            response = completion(
-                model=self._get_llm_model(),
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=20,
-                temperature=0.1
-            )
+        response_text = LLMClient.call_llm(
+            model=LLMClient.get_model(),
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=20,
+            temperature=0.1,
+            timeout=15,
+            max_retries=2
+        )
 
-            severity = response.choices[0].message.content.strip().lower()
-
+        if response_text:
+            severity = response_text.strip().lower()
             # Normalize severity
             if severity in ["critical"]:
                 return "high"
             elif severity in ["high", "medium", "low", "info"]:
                 return severity
-            else:
-                return finding_data.get("severity", "medium")
 
-        except Exception:
-            return finding_data.get("severity", "medium")
+        return finding_data.get("severity", "medium")
 
     def _calculate_llm_driven_risk_score(self, finding_data: Dict, severity: str, content: str) -> int:
         """Use LLM to calculate risk score with context"""
-        try:
-            from litellm import completion
-
-            prompt = f"""Calculate a risk score (0-100) for this security finding:
+        prompt = f"""Calculate a risk score (0-100) for this security finding:
 
 Severity: {severity}
 Description: {finding_data.get('description', '')}
@@ -321,33 +273,28 @@ Consider:
 
 Respond with just the numeric score:"""
 
-            response = completion(
-                model=self._get_llm_model(),
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=10,
-                temperature=0.1
-            )
+        response_text = LLMClient.call_llm(
+            model=LLMClient.get_model(),
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=10,
+            temperature=0.1,
+            timeout=15,
+            max_retries=2
+        )
 
-            score_text = response.choices[0].message.content.strip()
-
+        if response_text:
             # Extract numeric score
             import re
-            numbers = re.findall(r'\d+', score_text)
+            numbers = re.findall(r'\d+', response_text)
             if numbers:
                 score = int(numbers[0])
                 return max(0, min(100, score))
-            else:
-                return self._calculate_risk_score_from_severity(severity)
 
-        except Exception:
-            return self._calculate_risk_score_from_severity(severity)
+        return self._calculate_risk_score_from_severity(severity)
 
     def _generate_llm_recommendation(self, finding_data: Dict, content: str) -> str:
         """Use LLM to generate specific recommendations"""
-        try:
-            from litellm import completion
-
-            prompt = f"""Generate a specific, actionable recommendation for this security finding:
+        prompt = f"""Generate a specific, actionable recommendation for this security finding:
 
 Finding: {finding_data.get('description', '')}
 Code context: {content[:300]}...
@@ -355,22 +302,19 @@ Code context: {content[:300]}...
 Provide a concrete, implementable solution.
 Keep it brief but specific:"""
 
-            response = completion(
-                model=self._get_llm_model(),
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=100,
-                temperature=0.2
-            )
+        response_text = LLMClient.call_llm(
+            model=LLMClient.get_model(),
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
+            temperature=0.2,
+            timeout=15,
+            max_retries=2
+        )
 
-            recommendation = response.choices[0].message.content.strip()
+        if response_text and len(response_text) > 10:
+            return response_text
 
-            if recommendation and len(recommendation) > 10:
-                return recommendation
-            else:
-                return finding_data.get("recommendation", "Review and address this security concern")
-
-        except Exception:
-            return finding_data.get("recommendation", "Review and address this security concern")
+        return finding_data.get("recommendation", "Review and address this security concern")
 
     def _extract_content_context(self, content: str, line_number: int) -> str:
         """Extract relevant content context around the finding"""
@@ -385,13 +329,7 @@ Keep it brief but specific:"""
 
         return "\n".join(context_lines)
 
-    def _get_llm_model(self) -> str:
-        """Get LLM model for security analysis"""
-        try:
-            from ...config import settings
-            return settings.LLM_HELPER_MODEL
-        except:
-            return "gpt-4o-mini"
+
 
     def _analyze_patterns_basic(self, content: str) -> List[SecurityFinding]:
         """Perform basic pattern-based security analysis as supplement"""
