@@ -8,6 +8,9 @@ from dataclasses import dataclass
 import os
 import re
 
+# Import LLMClient at module level
+from ..smart_analyzer import LLMClient
+
 
 @dataclass
 class SecurityFinding:
@@ -44,17 +47,17 @@ class SecurityAnalyzer:
     def analyze_file_security(self, file_path: str, content: str) -> Dict[str, Any]:
         """
         Perform LLM-powered comprehensive security analysis of a file.
-        
+
         Args:
             file_path: Path to the file being analyzed
             content: File content to analyze
-            
+
         Returns:
             Structured security analysis results
         """
         # Reset finding counter for this file
         self.finding_counter = 0
-        
+
         # Perform LLM-based security analysis
         llm_analysis = self._analyze_with_llm(file_path, content)
 
@@ -66,10 +69,36 @@ class SecurityAnalyzer:
 
         # Combine findings
         all_findings = findings + pattern_findings
-        
+
         # Calculate overall risk assessment
         risk_assessment = self._calculate_risk_assessment(all_findings)
-        
+
+        # For LOW risk files, provide minimal output using LLM helper
+        if risk_assessment["overall_risk"] == "LOW":
+            # Use LLM helper to generate proper summary for LOW risk files
+            llm_helper = self._get_llm_helper()
+            llm_result = llm_helper.analyze_code_snippet(content, file_path)
+
+            # Create minimal risk assessment
+            minimal_risk_assessment = {
+                "overall_risk": "LOW",
+                "risk_score": 0
+            }
+
+            # Use LLM-generated summary, fallback to simple message if LLM fails
+            if "analysis" in llm_result:
+                summary = llm_result["analysis"]
+            else:
+                summary = "文件分析完成，未发现显著安全风险"
+
+            return {
+                "file_path": file_path,
+                "analysis_timestamp": self._get_timestamp(),
+                "risk_assessment": minimal_risk_assessment,
+                "summary": summary,
+                "llm_analysis": llm_result
+            }
+
         return {
             "file_path": file_path,
             "analysis_timestamp": self._get_timestamp(),
@@ -87,7 +116,39 @@ class SecurityAnalyzer:
         lines = content.split('\n')
         file_extension = file_path.split('.')[-1] if '.' in file_path else 'unknown'
 
-        prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
+        # Check if this is likely a LOW risk file based on content analysis
+        is_likely_low_risk = self._is_likely_low_risk(content, file_path)
+
+        if is_likely_low_risk:
+            # For LOW risk files, only extract function information
+            prompt = f"""Analyze this {file_extension} file and extract function/class information:
+
+File: {file_path}
+Lines: {len(lines)}
+
+Content:
+{content[:1500]}...
+
+Please provide:
+1. List all functions/classes with their purposes
+2. Overall security assessment
+
+Format as JSON:
+{{
+    "overall_risk": "LOW",
+    "risk_score": 0,
+    "findings": [],
+    "functions": [
+        {{
+            "name": "function_name",
+            "purpose": "Brief description of what this function does"
+        }}
+    ],
+    "summary": "Functions identified and no significant security issues detected"
+}}"""
+        else:
+            # For potentially risky files, perform comprehensive analysis
+            prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
 
 File: {file_path}
 Lines: {len(lines)}
@@ -116,30 +177,39 @@ Format your response as JSON with this structure:
             "recommendation": "how to fix"
         }}
     ],
-    "summary": "brief summary"
+    "summary": "Brief security assessment summary"
 }}"""
 
         # Use centralized LLM client
-        from ..smart_analyzer import LLMClient
         result_text = LLMClient.call_llm(
             model=LLMClient.get_model(),
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000,
+            max_tokens=1200 if not is_likely_low_risk else 800,  # Smaller for low risk
             temperature=0.1,
-            timeout=30,
-            max_retries=3
+            timeout=30 if not is_likely_low_risk else 20,  # Faster for low risk
+            max_retries=3 if not is_likely_low_risk else 2
         )
 
         if result_text:
             # Try to parse JSON response
             try:
                 import json
-                return json.loads(result_text)
+                parsed_result = json.loads(result_text)
+
+                # Handle function information for LOW risk files
+                if is_likely_low_risk and "functions" in parsed_result:
+                    parsed_result["summary"] = self._format_function_summary(parsed_result.get("functions", []))
+                elif isinstance(parsed_result.get("summary"), dict):
+                    # New structured format for high/medium risk
+                    summary_data = parsed_result["summary"]
+                    parsed_result["summary"] = self._format_structured_summary(summary_data)
+
+                return parsed_result
             except:
                 # If JSON parsing fails, return structured response
                 return {
-                    "overall_risk": "MEDIUM",
-                    "risk_score": 50,
+                    "overall_risk": "MEDIUM" if not is_likely_low_risk else "LOW",
+                    "risk_score": 50 if not is_likely_low_risk else 0,
                     "findings": [],
                     "summary": result_text[:500],
                     "llm_raw_response": result_text
@@ -329,6 +399,52 @@ Keep it brief but specific:"""
 
         return "\n".join(context_lines)
 
+    def _is_likely_low_risk(self, content: str, file_path: str) -> bool:
+        """Determine if a file is likely to be LOW risk based on content analysis"""
+        # Quick content analysis to determine if this is likely a low-risk file
+        content_lower = content.lower()
+
+        # Check for risky patterns
+        risky_patterns = [
+            'api[_-]?key', 'password', 'secret', 'token', 'auth',
+            'eval', 'exec', 'system', 'subprocess', 'shell',
+            'sql', 'query', 'database', 'inject',
+            'config', 'settings', 'env', 'credential'
+        ]
+
+        risky_count = 0
+        for pattern in risky_patterns:
+            if re.search(pattern, content_lower):
+                risky_count += 1
+
+        # If file has very few risky patterns and is not a config file, likely low risk
+        file_extension = file_path.split('.')[-1] if '.' in file_path else ''
+        config_files = ['config', 'settings', 'env', 'toml', 'yaml', 'yml', 'json']
+
+        if file_extension in config_files:
+            return False  # Config files are potentially risky
+
+        # Consider low risk if very few risky patterns found
+        return risky_count <= 2
+
+    def _format_structured_summary(self, summary_data: Dict) -> str:
+        """Format structured summary data into readable text"""
+        if not isinstance(summary_data, dict):
+            return str(summary_data)
+
+        file_purpose = summary_data.get("file_purpose", "Unknown purpose")
+        security_issue_location = summary_data.get("security_issue_location", "No specific location")
+        issue_explanation = summary_data.get("issue_explanation", "No detailed explanation available")
+
+        # Format the structured summary
+        formatted_summary = f"""file function:{file_purpose}
+        security issue location:{security_issue_location}
+        issue description:{issue_explanation}"""
+
+        return formatted_summary
+
+
+
 
 
     def _analyze_patterns_basic(self, content: str) -> List[SecurityFinding]:
@@ -418,25 +534,25 @@ Keep it brief but specific:"""
                 "medium_findings": 0,
                 "low_findings": 0
             }
-        
+
         # Count findings by severity
         high_findings = sum(1 for f in findings if f.severity == "high")
         medium_findings = sum(1 for f in findings if f.severity == "medium")
         low_findings = sum(1 for f in findings if f.severity == "low")
-        
-        # Calculate overall risk
+
+        # Calculate overall risk with adjusted thresholds for cleaner output
         total_risk_score = sum(f.risk_score for f in findings) // len(findings) if findings else 0
-        
-        if high_findings > 0 or total_risk_score >= 70:
+
+        if high_findings > 0:
             overall_risk = "HIGH"
-        elif medium_findings > 0 or total_risk_score >= 40:
+        elif medium_findings > 0:
             overall_risk = "MEDIUM"
         else:
-            overall_risk = "LOW"
-        
+            overall_risk = "LOW"  # Only low severity findings = LOW risk
+
         return {
             "overall_risk": overall_risk,
-            "risk_score": total_risk_score,
+            "risk_score": total_risk_score if overall_risk != "LOW" else 0,  # Don't show score for LOW risk
             "critical_findings": 0,  # Reserved for future use
             "high_findings": high_findings,
             "medium_findings": medium_findings,
@@ -445,27 +561,36 @@ Keep it brief but specific:"""
         }
     
     def _generate_security_summary(
-        self, 
-        findings: List[SecurityFinding], 
+        self,
+        findings: List[SecurityFinding],
         risk_assessment: Dict[str, Any]
     ) -> str:
         """Generate a human-readable security summary"""
         risk_level = risk_assessment["overall_risk"]
+
+        # For LOW risk files, provide minimal summary
+        if risk_level == "LOW":
+            total_findings = risk_assessment["total_findings"]
+            if total_findings == 0:
+                return "Security Risk: LOW - No security issues found"
+            else:
+                return f"Security Risk: LOW - {total_findings} minor finding(s), no immediate action required"
+
+        # For MEDIUM and HIGH risk files, provide detailed summary
         risk_score = risk_assessment["risk_score"]
-        
         summary = f"Security Risk: {risk_level} (Score: {risk_score}/100)"
-        
+
         if risk_assessment["high_findings"] > 0:
             summary += f"\n- {risk_assessment['high_findings']} high-risk finding(s)"
-        
+
         if risk_assessment["medium_findings"] > 0:
             summary += f"\n- {risk_assessment['medium_findings']} medium-risk finding(s)"
-        
+
         # Highlight specific critical issues
-        injection_findings = [f for f in findings if f.finding_type == "injection_vulnerability"]
+        injection_findings = [f for f in findings if "injection" in f.finding_type.lower()]
         if injection_findings:
             summary += f"\n- WARNING: {len(injection_findings)} potential injection vulnerability(ies)"
-        
+
         return summary
     
     def _generate_recommendations(self, findings: List[SecurityFinding]) -> List[str]:
@@ -513,6 +638,11 @@ Keep it brief but specific:"""
         """Get current timestamp"""
         import datetime
         return datetime.datetime.now().isoformat()
+
+    def _get_llm_helper(self):
+        """Get LLM helper instance for code analysis"""
+        from ..code_analysis.llm_decider import LLMHelper
+        return LLMHelper()
     
     def batch_analyze_files(self, files: Dict[str, str]) -> Dict[str, Any]:
         """

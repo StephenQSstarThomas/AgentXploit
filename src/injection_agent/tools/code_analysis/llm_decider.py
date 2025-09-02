@@ -38,13 +38,27 @@ class LLMHelper:
 {truncated_code}
 ```
 
-Provide a brief analysis covering:
-1. Purpose: What does this code do?
-2. Risk: Any security concerns? (high/medium/low/none)
-3. Patterns: Key patterns or frameworks used
-4. Quality: Code quality assessment
+Provide a structured security analysis in the following format:
+File Purpose: [One sentence describing what this file does]
+Security Issue Location: [One sentence identifying where the security issue is located, such as a specific line of code or function name]
+Issue Description:
+[First sentence explaining the security problem]
+[Second sentence elaborating on the severity and impact of the issue]
+Security Risk Level: [HIGH/MEDIUM/LOW]
+Recommended Fix: [Brief description of how to address the issue]
 
-Keep response under 200 words and focused."""
+If there are no significant security issues, respond with:
+File Purpose: [One sentence describing what this file does]
+Security Assessment: No significant security vulnerabilities identified in this code.
+
+Instructions for Analysis:
+
+Focus on actual security vulnerabilities, not general code quality issues
+Consider common security risks: injection attacks, authentication bypass, data exposure, privilege escalation, etc.
+Prioritize issues that could lead to real security compromises
+Be specific about the location and nature of any identified issues
+
+Keep the entire response under 300 words and be specific about any security concerns found."""
 
         for attempt in range(max_retries + 1):
             try:
