@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from litellm import completion
 from google.adk.tools import ToolContext
-from .smart_analyzer import Analyzer
+from . import Analyzer
 
 logger = logging.getLogger(__name__)
 

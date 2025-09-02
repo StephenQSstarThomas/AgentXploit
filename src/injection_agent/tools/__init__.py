@@ -12,8 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Main analyzer - uses new modular structure
-from .smart_analyzer import Analyzer
+# Main analyzer - deferred import to avoid circular imports
+def _get_analyzer():
+    from ..agents.analysis_agent import AnalysisAgent
+    return AnalysisAgent
+
+# For backwards compatibility
+class Analyzer:
+    def __new__(cls, *args, **kwargs):
+        AnalysisAgentClass = _get_analyzer()
+        return AnalysisAgentClass(*args, **kwargs)
 
 # Core components
 from .core.core_tools import EnhancedFileReader
@@ -21,6 +29,7 @@ from .core.analysis_context import AnalysisContext
 from .core.task import Task
 from .core.task_queue import TaskQueue
 from .core.execution_logger import ExecutionLogger
+from .core.llm_client import LLMClient
 
 # Specialized components
 from .analyzers.security_analyzer import SecurityAnalyzer
@@ -57,6 +66,7 @@ __all__ = [
     'Task',
     'TaskQueue',
     'ExecutionLogger',
+    'LLMClient',
     # Specialized components
     'SecurityAnalyzer',
     'AnalysisContextManager',
@@ -93,7 +103,8 @@ def smart_agent_analyze(repo_path: str, max_steps: int = None, tool_context=None
         except:
             max_steps = 50
 
-    analyzer = Analyzer(repo_path)
+    AnalysisAgentClass = _get_analyzer()
+    analyzer = AnalysisAgentClass(repo_path)
     return analyzer.analyze(max_steps=max_steps, save_results=True, focus="security")
 
 # Add to exports

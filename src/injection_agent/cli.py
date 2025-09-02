@@ -171,15 +171,15 @@ async def execute_command(args: argparse.Namespace) -> int:
                 logging.error("Repository path required for static command")
                 return 1
 
-            # Direct static analysis path - bypass agent for reliable JSON generation
-            logging.info(f"Starting direct static analysis of: {args.repository}")
+            # Use analysis agent for static analysis
+            logging.info(f"Starting analysis agent static analysis of: {args.repository}")
             try:
-                from .tools.smart_analyzer import Analyzer
+                from .agents.analysis_agent import AnalysisAgent
 
                 max_files = getattr(args, 'max_files', getattr(settings, 'MAX_FILES', 50))
                 logging.info(f"Analysis will process up to {max_files} files")
 
-                analyzer = Analyzer(args.repository)
+                analyzer = AnalysisAgent(args.repository)
                 result = analyzer.analyze(
                     max_steps=max_files,
                     save_results=True,

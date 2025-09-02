@@ -8,8 +8,8 @@ from dataclasses import dataclass
 import os
 import re
 
-# Import LLMClient at module level
-from ..smart_analyzer import LLMClient
+# Import LLMClient from core module
+from ..core.llm_client import LLMClient
 
 
 @dataclass
