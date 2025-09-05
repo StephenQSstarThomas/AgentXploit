@@ -37,6 +37,9 @@ class Task:
         result: Task execution result
         task_id: Unique task identifier
         error_message: Error details (when status is FAILED)
+        focus_id: Focus ID for focus-driven analysis
+        focus_type: Focus type (vulnerability, dependency, etc.)
+        focus_driven: Whether this task is focus-driven
     """
     type: TaskType
     target: str
@@ -45,6 +48,9 @@ class Task:
     result: Optional[Dict[str, Any]] = None
     task_id: Optional[str] = None
     error_message: Optional[str] = None
+    focus_id: Optional[str] = None
+    focus_type: Optional[str] = None
+    focus_driven: bool = False
     
     def __post_init__(self):
         if self.task_id is None:
@@ -52,10 +58,12 @@ class Task:
             self.task_id = str(uuid.uuid4())[:8]
     
     def __str__(self) -> str:
-        return f"Task[{self.task_id}]({self.type.value}: {self.target}, priority={self.priority}, status={self.status.value})"
+        focus_info = f", focus={self.focus_type}:{self.focus_id}" if self.focus_driven else ""
+        return f"Task[{self.task_id}]({self.type.value}: {self.target}, priority={self.priority}, status={self.status.value}{focus_info})"
     
     def __repr__(self) -> str:
-        return f"Task(id={self.task_id}, type={self.type.value}, target='{self.target}', priority={self.priority}, status={self.status.value})"
+        focus_info = f", focus_id='{self.focus_id}', focus_type='{self.focus_type}', focus_driven={self.focus_driven}" if self.focus_driven else ""
+        return f"Task(id={self.task_id}, type={self.type.value}, target='{self.target}', priority={self.priority}, status={self.status.value}{focus_info})"
     
     def set_running(self) -> None:
         self.status = TaskStatus.RUNNING

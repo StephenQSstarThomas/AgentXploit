@@ -22,6 +22,13 @@ class AnalysisContextManager:
         self.completed_analysis = []
         self.security_findings = []
         self.architectural_insights = {}
+        self.workflow_patterns = {
+            "llm_points": [],
+            "tool_chains": [], 
+            "data_flows": [],
+            "injection_vectors": [],
+            "tool_relationships": {}
+        }
         
     def update_project_structure(self, path: str, structure_data: Dict[str, Any]):
         """Update understanding of project structure"""
@@ -69,6 +76,9 @@ class AnalysisContextManager:
             "file": file_path,
             "risk_level": analysis_data.get("security_risk", "unknown")
         })
+        
+        # Extract and update workflow patterns
+        self._update_workflow_patterns(file_path, analysis_data)
     
     def add_todo(self, description: str, priority: str = "medium", context: str = ""):
         """Add analysis todo (called by agents)"""
@@ -158,6 +168,19 @@ class AnalysisContextManager:
             reverse=True
         )[:limit]
     
+    def get_analysis_result(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get analysis result for a specific file"""
+        for analysis_record in self.completed_analysis:
+            if analysis_record.get("file_path") == file_path:
+                # Return the complete record so callers can access security_risk and key_findings
+                analysis_data = analysis_record.get("analysis_data", {})
+                return {
+                    **analysis_data,
+                    "security_risk": analysis_record.get("security_risk", "unknown"),
+                    "key_findings": analysis_record.get("key_findings", [])
+                }
+        return None
+    
     def get_security_summary(self) -> Dict[str, Any]:
         """Get security findings summary"""
         high_risk = [f for f in self.security_findings if f["risk_level"] == "high"]
@@ -204,6 +227,60 @@ class AnalysisContextManager:
         
         return suggestions[:5]
     
+    def _update_workflow_patterns(self, file_path: str, analysis_data: Dict[str, Any]):
+        """Extract and update workflow patterns from analysis results"""
+        findings = analysis_data.get("findings", [])
+        
+        for finding in findings:
+            vulnerability_type = finding.get("vulnerability_type", "")
+            description = finding.get("description", "").lower()
+            
+            # Extract LLM integration points
+            if any(keyword in description for keyword in ["llm", "prompt", "message", "chat", "gpt", "claude"]):
+                if file_path not in self.workflow_patterns["llm_points"]:
+                    self.workflow_patterns["llm_points"].append(file_path)
+            
+            # Extract tool execution chains  
+            if any(keyword in description for keyword in ["tool", "execute", "call", "invoke", "run"]):
+                if file_path not in self.workflow_patterns["tool_chains"]:
+                    self.workflow_patterns["tool_chains"].append(file_path)
+            
+            # Extract data flow paths
+            if any(keyword in description for keyword in ["input", "output", "data", "flow", "pass", "transfer"]):
+                if file_path not in self.workflow_patterns["data_flows"]:
+                    self.workflow_patterns["data_flows"].append(file_path)
+            
+            # Extract injection vectors
+            if "injection" in vulnerability_type.lower():
+                injection_detail = f"{file_path}: {finding.get('injection_vector', 'unknown')}"
+                if injection_detail not in self.workflow_patterns["injection_vectors"]:
+                    self.workflow_patterns["injection_vectors"].append(injection_detail)
+    
+    def get_workflow_analysis(self) -> Dict[str, Any]:
+        """Get comprehensive workflow analysis for priority assessment"""
+        return {
+            "llm_points": self.workflow_patterns["llm_points"][-10:],  # Last 10 LLM points
+            "tool_chains": self.workflow_patterns["tool_chains"][-10:],  # Last 10 tool chains
+            "data_flows": self.workflow_patterns["data_flows"][-10:],  # Last 10 data flows
+            "injection_vectors": self.workflow_patterns["injection_vectors"][-5:],  # Last 5 injection vectors
+            "pattern_summary": {
+                "total_llm_points": len(self.workflow_patterns["llm_points"]),
+                "total_tool_chains": len(self.workflow_patterns["tool_chains"]),
+                "total_data_flows": len(self.workflow_patterns["data_flows"]),
+                "total_injection_vectors": len(self.workflow_patterns["injection_vectors"])
+            }
+        }
+    
+    def get_comprehensive_analysis_context(self) -> Dict[str, Any]:
+        """Get comprehensive context for LLM including discoveries and workflow patterns"""
+        return {
+            "security_findings": self.security_findings[-10:],  # Last 10 findings
+            "workflow_analysis": self.get_workflow_analysis(),
+            "project_overview": self.get_project_overview(),
+            "analysis_history": self.get_analysis_history(10),
+            "context_generated_at": datetime.now().isoformat()
+        }
+    
     def export_context(self) -> Dict[str, Any]:
         """Export full context for persistence or analysis"""
         return {
@@ -214,5 +291,6 @@ class AnalysisContextManager:
             "completed_analysis": self.completed_analysis,
             "security_findings": self.security_findings,
             "architectural_insights": self.architectural_insights,
+            "workflow_patterns": self.workflow_patterns,
             "exported_at": datetime.now().isoformat()
         }

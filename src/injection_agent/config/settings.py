@@ -34,6 +34,7 @@ class CliConfig:
     custom_payload: Optional[str] = None
     max_workers: int = None
     max_files: int = None  # Will be set from settings
+    max_steps: int = None  # Will be set from settings
     analysis_mode: str = "intelligent"
     dry_run: bool = False
     
@@ -118,7 +119,7 @@ class Settings:
         """Load CLI default settings"""
         self.MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
         self.MAX_FILES = int(os.getenv("MAX_FILES", "50"))
-        self.MAX_STEPS = int(os.getenv("MAX_STEPS", "50"))
+        self.MAX_STEPS = int(os.getenv("MAX_STEPS", "150"))
         self.ANALYSIS_MODE = os.getenv("ANALYSIS_MODE", "intelligent")
     
     def get_openai_api_key(self) -> str:

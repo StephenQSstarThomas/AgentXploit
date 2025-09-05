@@ -104,6 +104,20 @@ def create_parser() -> argparse.ArgumentParser:
         help="Maximum number of files to read during static analysis"
     )
     
+    # Get default max_steps from settings
+    try:
+        from .config import settings
+        default_max_steps = getattr(settings, 'MAX_STEPS', 150)
+    except:
+        default_max_steps = 150
+
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=default_max_steps,
+        help="Maximum number of analysis steps to execute"
+    )
+    
     parser.add_argument(
         "--analysis-mode",
         choices=['intelligent', 'simple'],
@@ -147,6 +161,7 @@ async def execute_command(args: argparse.Namespace) -> int:
             custom_payload=args.payload,
             max_workers=args.max_workers,
             max_files=getattr(args, 'max_files', getattr(settings, 'MAX_FILES', 50)),
+            max_steps=getattr(args, 'max_steps', getattr(settings, 'MAX_STEPS', 150)),
             analysis_mode=getattr(args, 'analysis_mode', 'intelligent'),
             dry_run=args.dry_run
         )
@@ -177,11 +192,12 @@ async def execute_command(args: argparse.Namespace) -> int:
                 from .agents.analysis_agent import AnalysisAgent
 
                 max_files = getattr(args, 'max_files', getattr(settings, 'MAX_FILES', 50))
-                logging.info(f"Analysis will process up to {max_files} files")
+                max_steps = getattr(args, 'max_steps', getattr(settings, 'MAX_STEPS', 150))
+                logging.info(f"Analysis will process up to {max_files} files and {max_steps} steps")
 
                 analyzer = AnalysisAgent(args.repository)
                 result = analyzer.analyze(
-                    max_steps=max_files,
+                    max_steps=max_steps,
                     save_results=True,
                     focus="security"
                 )

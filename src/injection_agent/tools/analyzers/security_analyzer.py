@@ -61,17 +61,11 @@ class SecurityAnalyzer:
         # Perform LLM-based security analysis
         llm_analysis = self._analyze_with_llm(file_path, content)
 
-        # Extract findings from LLM analysis
+        # Extract findings from LLM analysis - injection point focused only
         findings = self._extract_findings_from_llm(file_path, content, llm_analysis)
 
-        # Perform additional pattern-based analysis as fallback/supplement
-        pattern_findings = self._analyze_patterns_basic(content)
-
-        # Combine findings
-        all_findings = findings + pattern_findings
-
         # Calculate overall risk assessment
-        risk_assessment = self._calculate_risk_assessment(all_findings)
+        risk_assessment = self._calculate_risk_assessment(findings)
 
         # For LOW risk files, provide minimal output using LLM helper
         if risk_assessment["overall_risk"] == "LOW":
@@ -103,11 +97,10 @@ class SecurityAnalyzer:
             "file_path": file_path,
             "analysis_timestamp": self._get_timestamp(),
             "risk_assessment": risk_assessment,
-            "findings": all_findings,
+            "findings": findings,
             "llm_analysis": llm_analysis,
-            "pattern_analysis": pattern_findings,
-            "summary": self._generate_security_summary(all_findings, risk_assessment),
-            "recommendations": self._generate_recommendations(all_findings)
+            "summary": self._generate_security_summary(findings, risk_assessment),
+            "recommendations": self._generate_recommendations(findings)
         }
     
     def _analyze_with_llm(self, file_path: str, content: str) -> Dict[str, Any]:
@@ -147,37 +140,49 @@ Format as JSON:
     "summary": "Functions identified and no significant security issues detected"
 }}"""
         else:
-            # For potentially risky files, perform comprehensive analysis
-            prompt = f"""Perform a comprehensive security analysis of this {file_extension} file:
+            # For potentially risky files, perform agent-focused analysis
+            prompt = f"""Analyze this {file_extension} file for AGENT INJECTION VULNERABILITIES - focus on data flow and tool usage that could enable prompt injection attacks:
 
 File: {file_path}
 Lines: {len(lines)}
 
 Content:
-{content[:2000]}...  # Limit content for LLM
+{content[:2000]}...
 
-Please analyze for:
-1. Security vulnerabilities (injection, XSS, authentication issues)
-2. Data exposure risks
-3. Configuration problems
-4. Code quality and security best practices
-5. Potential attack vectors
+**ANALYSIS FOCUS - Agent Injection Points:**
 
-Format your response as JSON with this structure:
+1. **Tool Input/Output Flows**: Where does external data enter tools? How is tool output processed before going to LLM?
+2. **LLM Interface Points**: Direct LLM calls, prompt construction, message formatting
+3. **Data Pipeline Vulnerabilities**: User input → data processing → tool execution → LLM input 
+4. **Agent Workflow Risks**: Multi-step agent processes where intermediate results could be poisoned
+5. **Context Injection**: How context/history is built and passed to LLM
+6. **Tool Chain Exploitation**: How tools call other tools, potential for malicious tool outputs
+
+**Look specifically for:**
+- Unsanitized user input reaching LLM prompts
+- Tool outputs directly concatenated into prompts
+- Dynamic prompt construction from external sources
+- Agent state/context manipulation possibilities
+- Tool execution based on LLM-generated content
+- File/data processing that feeds back to agent decisions
+
+Format response as JSON:
 {{
-    "overall_risk": "HIGH|MEDIUM|LOW",
+    "overall_risk": "HIGH|MEDIUM|LOW",  
     "risk_score": 0-100,
-    "findings": [
+    "agent_injection_points": [
         {{
-            "type": "vulnerability_type",
+            "type": "data_flow_injection|tool_output_injection|context_injection|workflow_manipulation",
             "severity": "high|medium|low",
             "line": 123,
-            "description": "description of issue",
-            "code_snippet": "relevant code",
-            "recommendation": "how to fix"
+            "description": "specific injection scenario",
+            "data_flow": "source → processing → llm_input",
+            "attack_vector": "how attacker could exploit this",
+            "recommendation": "mitigation strategy"
         }}
     ],
-    "summary": "Brief security assessment summary"
+    "workflow_analysis": "how this component fits in agent execution flow",
+    "summary": "agent injection risk assessment"
 }}"""
 
         # Use centralized LLM client
@@ -224,12 +229,17 @@ Format your response as JSON with this structure:
             }
 
     def _extract_findings_from_llm(self, file_path: str, content: str, llm_analysis: Dict) -> List[SecurityFinding]:
-        """Extract security findings from LLM analysis with enhanced LLM-driven decision making"""
+        """Extract agent injection findings from LLM analysis"""
         findings = []
         
-        llm_findings = llm_analysis.get("findings", [])
+        # Handle new agent_injection_points format
+        injection_points = llm_analysis.get("agent_injection_points", [])
+        # Also support legacy findings format
+        legacy_findings = llm_analysis.get("findings", [])
+        
+        all_findings = injection_points + legacy_findings
 
-        for finding_data in llm_findings:
+        for finding_data in all_findings:
             # LLM-driven decision: Let LLM determine the finding type based on content
             finding_type = self._classify_finding_with_llm(finding_data, content)
 
@@ -248,8 +258,11 @@ Format your response as JSON with this structure:
                 description=finding_data.get("description", "Security issue detected"),
                 details={
                     "llm_analysis": llm_analysis.get("summary", ""),
-                    "detection_method": "llm_analysis",
-                    "llm_risk_assessment": f"LLM-determined risk score: {risk_score}",
+                    "detection_method": "agent_workflow_analysis", 
+                    "data_flow": finding_data.get("data_flow", ""),
+                    "attack_vector": finding_data.get("attack_vector", ""),
+                    "workflow_analysis": llm_analysis.get("workflow_analysis", ""),
+                    "llm_risk_assessment": f"Agent injection risk score: {risk_score}",
                     "content_context": self._extract_content_context(content, finding_data.get("line", 1))
                 },
                 risk_score=risk_score,
@@ -282,12 +295,21 @@ Respond with just the classification:"""
 
         if response_text:
             classification = response_text.strip().lower()
-            # Map to valid finding types
-            valid_types = ["injection_risk", "authentication_issue", "data_exposure", "configuration_risk", "code_quality"]
+            # Map to valid finding types including new agent injection types
+            valid_types = [
+                "data_flow_injection", "tool_output_injection", "context_injection", 
+                "workflow_manipulation", "injection_risk", "authentication_issue", 
+                "data_exposure", "configuration_risk", "code_quality"
+            ]
             if classification in valid_types:
                 return classification
 
-        return finding_data.get("type", "general_security_issue")
+        # Check for agent injection types in finding_data
+        finding_type = finding_data.get("type", "")
+        if finding_type in valid_types:
+            return finding_type
+            
+        return "general_security_issue"
 
     def _assess_severity_with_llm(self, finding_data: Dict, content: str, file_path: str) -> str:
         """Use LLM to assess severity with full context"""
@@ -447,49 +469,6 @@ Keep it brief but specific:"""
 
 
 
-    def _analyze_patterns_basic(self, content: str) -> List[SecurityFinding]:
-        """Perform basic pattern-based security analysis as supplement"""
-        findings = []
-
-        # Common dangerous patterns
-        dangerous_patterns = [
-            (r"eval\s*\(", "HIGH", "Use of eval() function"),
-            (r"exec\s*\(", "HIGH", "Use of exec() function"),
-            (r"os\.system\s*\(", "HIGH", "Use of os.system()"),
-            (r"subprocess\.(call|Popen|run)\s*\(", "MEDIUM", "Subprocess execution"),
-            (r"SQLAlchemy.*text\s*\(", "HIGH", "SQL injection via SQLAlchemy text"),
-            (r"cursor\.execute\s*\([^,)]*\+\s*[^,)]*\)", "HIGH", "Potential SQL injection"),
-            (r"innerHTML\s*=.*\+", "HIGH", "Potential XSS via innerHTML"),
-            (r"document\.write\s*\(.*\+.*\)", "HIGH", "Potential XSS via document.write"),
-            (r"password\s*=\s*['\"][^'\"]{0,10}['\"]", "MEDIUM", "Weak or empty password"),
-            (r"secret[_-]?key\s*=\s*['\"][^'\"]*['\"]", "HIGH", "Hardcoded secret key"),
-            (r"api[_-]?key\s*=\s*['\"][^'\"]*['\"]", "HIGH", "Hardcoded API key"),
-        ]
-
-        lines = content.split('\n')
-
-        for i, line in enumerate(lines, 1):
-            for pattern, severity, description in dangerous_patterns:
-                if re.search(pattern, line, re.IGNORECASE):
-                    finding = SecurityFinding(
-                        finding_id=self._next_finding_id(),
-                        finding_type="pattern_based",
-                        severity=severity.lower(),
-                        file_path="",  # Will be filled by caller
-                        line_number=i,
-                        description=description,
-                        details={
-                            "pattern": pattern,
-                            "matched_line": line.strip(),
-                            "detection_method": "regex_pattern"
-                        },
-                        risk_score=self._calculate_risk_score_from_severity(severity.lower()),
-                        recommendation=self._get_recommendation_for_pattern(pattern),
-                        code_snippet=line.strip()
-                    )
-                    findings.append(finding)
-
-        return findings
 
     def _calculate_risk_score_from_severity(self, severity: str) -> int:
         """Convert severity string to risk score"""
@@ -501,27 +480,6 @@ Keep it brief but specific:"""
         }
         return severity_map.get(severity.lower(), 25)
     
-    def _get_recommendation_for_pattern(self, pattern: str) -> str:
-        """Get specific recommendation for a security pattern"""
-        recommendations = {
-            r"eval\s*\(": "Avoid using eval(). Use ast.literal_eval() for safe evaluation",
-            r"exec\s*\(": "Avoid using exec(). Use safer alternatives or validate input thoroughly",
-            r"os\.system\s*\(": "Use subprocess module with proper argument handling",
-            r"subprocess\.(call|Popen|run)\s*\(": "Validate command arguments and avoid shell=True when possible",
-            r"SQLAlchemy.*text\s*\(": "Use parameterized queries to prevent SQL injection",
-            r"cursor\.execute\s*\([^,)]*\+\s*[^,)]*\)": "Use parameterized queries to prevent SQL injection",
-            r"innerHTML\s*=.*\+": "Use textContent or innerText, or properly escape HTML",
-            r"document\.write\s*\(.*\+.*\)": "Avoid document.write with user input. Use DOM manipulation instead",
-            r"password\s*=\s*['\"][^'\"]{0,10}['\"]": "Use strong passwords and never hardcode them",
-            r"secret[_-]?key\s*=\s*['\"][^'\"]*['\"]": "Move secrets to environment variables or secure config",
-            r"api[_-]?key\s*=\s*['\"][^'\"]*['\"]": "Store API keys securely, never in source code"
-        }
-
-        for pattern_key, recommendation in recommendations.items():
-            if re.search(pattern_key, pattern):
-                return recommendation
-
-        return "Review this pattern for security implications"
     
     def _calculate_risk_assessment(self, findings: List[SecurityFinding]) -> Dict[str, Any]:
         """Calculate overall risk assessment for the file"""
@@ -601,33 +559,23 @@ Keep it brief but specific:"""
             if finding.severity in ["high", "medium"]:
                 recommendations.add(finding.recommendation)
         
-        # Add general recommendations based on finding types
+        # Add general recommendations based on injection finding types
         finding_types = {f.finding_type for f in findings}
         
-        if "dangerous_pattern" in finding_types:
-            recommendations.add("Review all dynamic code execution patterns for necessity and safety")
+        if "data_flow_injection" in finding_types:
+            recommendations.add("Sanitize data before passing between tools and LLM")
         
-        if "injection_vulnerability" in finding_types:
-            recommendations.add("Implement comprehensive input validation and output encoding")
+        if "tool_output_injection" in finding_types:
+            recommendations.add("Validate and sanitize tool outputs before LLM processing")
         
-        if "risky_input_point" in finding_types:
-            recommendations.add("Audit all user input handling for proper sanitization")
+        if "context_injection" in finding_types:
+            recommendations.add("Implement strict context validation and sanitization")
+        
+        if "workflow_manipulation" in finding_types:
+            recommendations.add("Add integrity checks to agent workflow processes")
         
         return sorted(list(recommendations))
     
-    def _get_pattern_recommendation(self, pattern_type: str) -> str:
-        """Get specific recommendation for a pattern type"""
-        recommendations = {
-            "exec": "Avoid using exec(). Use safer alternatives or validate input thoroughly",
-            "eval": "Avoid using eval(). Use ast.literal_eval() for safe evaluation",
-            "os_system": "Use subprocess module with proper argument handling",
-            "subprocess_call": "Validate command arguments and avoid shell=True when possible",
-            "sql_execute": "Use parameterized queries to prevent SQL injection",
-            "compile": "Validate source code before compilation",
-            "importlib": "Validate module names before dynamic import",
-            "socket": "Implement proper network security measures"
-        }
-        return recommendations.get(pattern_type, "Review this pattern for security implications")
     
     def _next_finding_id(self) -> str:
         """Generate next finding ID"""

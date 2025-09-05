@@ -14,38 +14,27 @@
 
 from .task_manager import (
     manage_analysis_tasks,
-    create_analysis_todo,
-    update_analysis_progress,
-    get_analysis_status,
-    create_comprehensive_analysis_plan
+    # create_analysis_todo,  # COMMENTED OUT
+    # update_analysis_progress,  # COMMENTED OUT
+    # get_analysis_status,  # COMMENTED OUT
+    # create_comprehensive_analysis_plan  # COMMENTED OUT
 )
 from .context_tools import (
     initialize_analysis_context,
-    get_project_overview,
-    get_analysis_history,
-    get_security_summary,
-    update_todo_status,
-    get_current_todos,
-    get_next_suggestions,
-    record_analysis_result,
-    record_directory_structure,
+    # get_project_overview,  # COMMENTED OUT
+    # get_analysis_history,  # COMMENTED OUT
+    # get_security_summary,  # COMMENTED OUT
+    # update_todo_status,  # COMMENTED OUT
+    # get_current_todos,  # COMMENTED OUT
+    # get_next_suggestions,  # COMMENTED OUT
+    # record_analysis_result,  # COMMENTED OUT
+    # record_directory_structure,  # COMMENTED OUT
 )
 from .analysis_context_manager import AnalysisContextManager
 
 __all__ = [
     'manage_analysis_tasks',
-    'create_analysis_todo',
-    'update_analysis_progress',
-    'get_analysis_status',
-    'create_comprehensive_analysis_plan',
-    'initialize_analysis_context',
-    'get_project_overview',
-    'get_analysis_history',
-    'get_security_summary',
-    'update_todo_status',
-    'get_current_todos',
-    'get_next_suggestions',
-    'record_analysis_result',
-    'record_directory_structure',
+    'initialize_analysis_context', 
     'AnalysisContextManager'
+    # Other functions commented out as they're not being used
 ]

@@ -30,6 +30,7 @@ from .core.task import Task
 from .core.task_queue import TaskQueue
 from .core.execution_logger import ExecutionLogger
 from .core.llm_client import LLMClient
+from .core.history_compactor import HistoryCompactor
 
 # Specialized components
 from .analyzers.security_analyzer import SecurityAnalyzer
@@ -67,6 +68,7 @@ __all__ = [
     'TaskQueue',
     'ExecutionLogger',
     'LLMClient',
+    'HistoryCompactor',
     # Specialized components
     'SecurityAnalyzer',
     'AnalysisContextManager',

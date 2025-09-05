@@ -674,9 +674,7 @@ class EnhancedFileReader:
             directories = []
 
             for item in sorted(target_path.iterdir()):
-                if item.name.startswith('.'):  # Skip hidden files
-                    continue
-
+                # Allow all files and directories, let LLM decide what's important
                 item_info = {
                     "name": item.name,
                     "type": "directory" if item.is_dir() else "file",
@@ -781,13 +779,9 @@ class EnhancedFileReader:
 
         if recursive:
             for root, dirs, files in os.walk(start_path):
-                # Skip hidden directories
-                dirs[:] = [d for d in dirs if not d.startswith('.')]
-
+                # Allow all directories and files, let LLM decide what's important
                 root_path = Path(root)
                 for file in files:
-                    if file.startswith('.'):
-                        continue
 
                     file_path = root_path / file
                     relative_path = file_path.relative_to(self.repo_path)
@@ -806,7 +800,7 @@ class EnhancedFileReader:
                         search_files.append(file_path)
         else:
             for item in start_path.iterdir():
-                if item.is_file() and not item.name.startswith('.'):
+                if item.is_file():  # Allow all files, let LLM decide
                     relative_path = item.relative_to(self.repo_path)
 
                     # Check include pattern
@@ -912,6 +906,7 @@ class EnhancedFileReader:
 
                 try:
                     for item in sorted(current_path.iterdir()):
+                        # Allow hidden files based on include_hidden parameter
                         if not include_hidden and item.name.startswith('.'):
                             continue
 
@@ -998,6 +993,7 @@ class EnhancedFileReader:
             def search_directory(current_path: Path):
                 try:
                     for item in current_path.iterdir():
+                        # Allow hidden files if explicitly searched for
                         if item.name.startswith('.') and not name_pattern.startswith('.'):
                             continue
 
