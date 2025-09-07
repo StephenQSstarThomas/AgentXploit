@@ -3,9 +3,9 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "injection-agent"
-version = "0.1.0"
-description = "AI injection vulnerability analysis agent using Google ADK"
+name = "agentxploit"
+version = "1.0.0"
+description = "Advanced AI security research and exploit agent using Google ADK"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.12"
@@ -17,6 +17,7 @@ dependencies = [
     "google-adk==1.0.0",
     "litellm==1.74.3",
     "python-dotenv==1.0.0",
+    "swe-rex>=1.4.0",
 ]
 
 [project.optional-dependencies]
@@ -29,18 +30,18 @@ dev = [
 ]
 
 [project.scripts]
-injection-agent = "injection_agent.cli:main"
+agentxploit = "AgentXploit.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/StephenQSstarThomas/injection_agent"
-Repository = "https://github.com/StephenQSstarThomas/injection_agent"
-Issues = "https://github.com/StephenQSstarThomas/injection_agent/issues"
+Homepage = "https://github.com/StephenQSstarThomas/AgentXploit"
+Repository = "https://github.com/StephenQSstarThomas/AgentXploit"
+Issues = "https://github.com/StephenQSstarThomas/AgentXploit/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-injection_agent = ["py.typed"]
+AgentXploit = ["py.typed"]
 
 [tool.ruff]
 select = ["E", "F", "B", "I", "N", "UP", "S", "A", "C4", "DTZ", "T10", "ISC"]
@@ -49,7 +50,7 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint.isort]
-known-first-party = ["injection_agent"]
+known-first-party = ["AgentXploit"]
 
 [tool.mypy]
 python_version = "3.12"

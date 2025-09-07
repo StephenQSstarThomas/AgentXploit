@@ -1,6 +1,6 @@
-# Injection Agent
+# AgentXploit
 
-AI agent for analyzing prompt injection vulnerabilities in AI model interactions using **OpenAI GPT-4o via LiteLLM**.
+Advanced AI security research and exploit agent for analyzing vulnerabilities in AI model interactions using **OpenAI GPT-4o via LiteLLM**.
 
 ## Quick Start
 
@@ -9,16 +9,16 @@ AI agent for analyzing prompt injection vulnerabilities in AI model interactions
 pip install -e ".[dev]"
 
 # Analyze a single trajectory file
-injection-agent analyze -f ./trajectory.json
+agentxploit analyze -f ./trajectory.json
 
 # Batch process multiple files
-injection-agent batch -d ./trajectories/
+agentxploit batch -d ./trajectories/
 
 # Static analysis of agent repository
-injection-agent static -r ./target_agent/
+agentxploit static -r ./target_agent/
 
 # Comprehensive security analysis
-injection-agent comprehensive -r ./target_agent/
+agentxploit comprehensive -r ./target_agent/
 ```
 
 ## Commands
@@ -28,9 +28,9 @@ injection-agent comprehensive -r ./target_agent/
 Analyzes a single trajectory file and generates an injection report.
 
 ```bash
-injection-agent analyze -f ./trajectory.json
-injection-agent analyze -f ./trajectory.json -s debug
-injection-agent analyze -f ./trajectory.json -p "custom-command"
+agentxploit analyze -f ./trajectory.json
+agentxploit analyze -f ./trajectory.json -s debug
+agentxploit analyze -f ./trajectory.json -p "custom-command"
 ```
 
 **Options:**
@@ -45,8 +45,8 @@ injection-agent analyze -f ./trajectory.json -p "custom-command"
 Processes multiple trajectory files in parallel.
 
 ```bash
-injection-agent batch -d ./trajectories/
-injection-agent batch -d ./trajectories/ -s authority --max-workers 8
+agentxploit batch -d ./trajectories/
+agentxploit batch -d ./trajectories/ -s authority --max-workers 8
 ```
 
 **Options:**
@@ -62,8 +62,8 @@ injection-agent batch -d ./trajectories/ -s authority --max-workers 8
 Performs static analysis of an agent repository.
 
 ```bash
-injection-agent static -r ./target_agent/
-injection-agent static -r ./target_agent/ --max-files 30
+agentxploit static -r ./target_agent/
+agentxploit static -r ./target_agent/ --max-files 30
 ```
 
 **Options:**
@@ -77,8 +77,8 @@ injection-agent static -r ./target_agent/ --max-files 30
 Combines static analysis with injection vulnerability assessment.
 
 ```bash
-injection-agent comprehensive -r ./target_agent/
-injection-agent comprehensive -r ./target_agent/ -s authority --max-files 25
+agentxploit comprehensive -r ./target_agent/
+agentxploit comprehensive -r ./target_agent/ -s authority --max-files 25
 ```
 
 **Options:**
@@ -162,7 +162,7 @@ cd injection-agent
 pip install -e ".[dev]"
 
 # Verify installation
-injection-agent --help
+agentxploit --help
 ```
 
 ## Configuration
@@ -174,7 +174,7 @@ The tool is pre-configured with an OpenAI API key, but you can override it:
 # Environment variable
 export OPENAI_API_KEY="sk-proj-your-key-here"
 
-# Or edit src/injection_agent/config/settings.py
+# Or edit src/AgentXploit/config/settings.py
 DEFAULT_OPENAI_API_KEY = "your-key-here"
 ```
 
@@ -183,34 +183,34 @@ DEFAULT_OPENAI_API_KEY = "your-key-here"
 ### Basic Analysis
 ```bash
 # Analyze single file
-injection-agent analyze -f ./issue_123.json
+agentxploit analyze -f ./issue_123.json
 
 # Use debug strategy
-injection-agent analyze -f ./issue_123.json -s debug -v
+agentxploit analyze -f ./issue_123.json -s debug -v
 
 # Custom payload
-injection-agent analyze -f ./issue_123.json -p "custom-shell-command"
+agentxploit analyze -f ./issue_123.json -p "custom-shell-command"
 ```
 
 ### Batch Processing
 ```bash
 # Process all files in directory
-injection-agent batch -d ./trajectories/
+agentxploit batch -d ./trajectories/
 
 # High-throughput processing
-injection-agent batch -d ./large_dataset/ --max-workers 10
+agentxploit batch -d ./large_dataset/ --max-workers 10
 
 # Cost estimation
-injection-agent batch -d ./trajectories/ --dry-run
+agentxploit batch -d ./trajectories/ --dry-run
 ```
 
 ### Repository Analysis
 ```bash
 # Static analysis
-injection-agent static -r ./agent_repo/ -v --max-files 30
+agentxploit static -r ./agent_repo/ -v --max-files 30
 
 # Comprehensive security analysis
-injection-agent comprehensive -r ./agent_repo/ -s technical
+agentxploit comprehensive -r ./agent_repo/ -s technical
 ```
 
 ## Security Considerations
@@ -233,8 +233,8 @@ injection-agent comprehensive -r ./agent_repo/ -s technical
 ## Project Structure
 
 ```
-injection-agent/
-├── src/injection_agent/          # Main package
+agentxploit/
+├── src/AgentXploit/              # Main package
 │   ├── agent.py                  # LiteLLM-powered agent
 │   ├── cli.py                    # Command-line interface
 │   ├── config/settings.py        # Configuration and API keys
