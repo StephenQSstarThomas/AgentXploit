@@ -24,7 +24,7 @@ import json
 
 from ..core.llm_client import LLMClient
 from ..core.history_compactor import HistoryCompactor
-from ..core.path_validator import PathValidator
+from ..core.path_manager import PathManager
 from ..prompt_manager import PromptManager
 
 
@@ -34,7 +34,7 @@ class DecisionEngine:
     def __init__(self, repo_path: str):
         self.repo_path = Path(repo_path)
         self.history_compactor = HistoryCompactor()
-        self.path_validator = PathValidator(repo_path)
+        self.path_manager = PathManager(repo_path)
     
     def make_autonomous_decision(self, decision_type: str, context_manager, task_queue, 
                                 analyzed_files: set, explored_dirs: set, focus: str = "security", **kwargs) -> Dict[str, Any]:
@@ -132,8 +132,17 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
         
         from ..prompt_manager import PromptManager
         
-        # 构建探索上下文，但为了与PromptManager兼容，需要提供正确的参数
-        exploration_context = f"Currently exploring: {explored_path}"
+        # Build exploration context with repository information
+        # Validate that explored_path is within the current repository
+        repo_abs_path = str(Path(self.repo_path).resolve())
+        if explored_path and explored_path != "." and not os.path.isabs(explored_path):
+            explored_abs_path = str(Path(self.repo_path, explored_path).resolve())
+            if not explored_abs_path.startswith(repo_abs_path):
+                # Reset to repository root if path is stale
+                explored_path = "."
+                print(f"  [PATH_FIX] Reset stale explored_path to repository root")
+        
+        exploration_context = f"Repository: {Path(self.repo_path).name}, Currently exploring: {explored_path}"
         prompt = PromptManager.get_exploration_decision_prompt(
             history_context=history_context,
             exploration_context=exploration_context,
@@ -169,7 +178,21 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
         
         from ..prompt_manager import PromptManager
         
+        # Build context with available files from current directory  
         context = self._build_content_decision_context(file_path, content, security_result)
+        
+        # Get current directory files for strict validation
+        current_dir = str(Path(file_path).parent) if "/" in file_path else "."
+        try:
+            from ..core.core_tools import EnhancedFileReader
+            tools = EnhancedFileReader(self.repo_path)
+            dir_result = tools.list_directory(current_dir)
+            context["available_files"] = dir_result.get("files", [])
+            context["available_dirs"] = dir_result.get("directories", [])
+        except:
+            context["available_files"] = []
+            context["available_dirs"] = []
+            
         prompt = PromptManager.get_content_decision_prompt(history_context, context, focus)
         
         model = LLMClient.get_model()
@@ -187,7 +210,9 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
             decisions = self._parse_llm_decision(decision_text)
             # Filter out already analyzed files before execution
             decisions = self._filter_already_analyzed_targets(decisions, history_context)
-            execution_result = self._execute_content_follow_up(decisions, file_path, task_queue)
+            # Validate against available files like in exploration
+            validated_decisions = self._validate_content_decisions(decisions, context["available_files"], context["available_dirs"])
+            execution_result = self._execute_content_follow_up(validated_decisions, file_path, task_queue)
             result.update(execution_result)
         
         return result
@@ -351,21 +376,31 @@ Respond ONLY in JSON format:
                     target_path = target["path"]
                     target_type = target.get("type", "file")
                     
+                    print(f"  [VALIDATION_DEBUG] Checking {target_type}: '{target_path}'")
+                    if target_type == "file":
+                        file_match = target_path in available_files if available_files else False
+                        print(f"    File match: {file_match} (in {len(available_files) if available_files else 0} available files)")
+                    else:
+                        dir_match = target_path in available_dirs if available_dirs else False
+                        print(f"    Dir match: {dir_match} (in {len(available_dirs) if available_dirs else 0} available dirs)")
+                        if not dir_match and available_dirs:
+                            print(f"    Available dirs: {available_dirs[:10]}...")
+                    
                     # Improved validation with better path matching
                     is_valid = False
                     
                     if target_type == "file" and available_files:
-                        # Direct match or basename match
-                        if (target_path in available_files or 
-                            any(target_path == os.path.basename(f) for f in available_files) or
-                            any(target_path in f or f in target_path for f in available_files)):
+                        # Only allow exact matches - remove fuzzy matching to prevent hallucinated files
+                        if target_path in available_files:
                             is_valid = True
+                        else:
+                            print(f"  [VALIDATION] File '{target_path}' not found in available files: {available_files[:5]}")
                     elif target_type == "directory" and available_dirs:
-                        # Direct match or basename match
-                        if (target_path in available_dirs or
-                            any(target_path == os.path.basename(d) for d in available_dirs) or
-                            any(target_path in d or d in target_path for d in available_dirs)):
+                        # Only allow exact matches - remove fuzzy matching to prevent hallucinated dirs  
+                        if target_path in available_dirs:
                             is_valid = True
+                        else:
+                            print(f"  [VALIDATION] Directory '{target_path}' not found in available dirs: {available_dirs[:5]}")
                     
                     if is_valid:
                         validated["analysis_targets"].append(target)
@@ -375,9 +410,45 @@ Respond ONLY in JSON format:
         
         print(f"  [VALIDATION] {len(validated['analysis_targets'])}/{len(analysis_targets)} targets validated")
         return validated
+
+    def _validate_content_decisions(self, decisions: Dict, available_files: List[str] = None, 
+                                   available_dirs: List[str] = None) -> Dict:
+        """Validate content follow-up decisions against available files"""
+        validated = {"follow_up_targets": []}
+        
+        follow_up_targets = decisions.get("follow_up_targets", [])
+        if isinstance(follow_up_targets, list):
+            for target in follow_up_targets:
+                if isinstance(target, dict) and "path" in target:
+                    target_path = target["path"]
+                    target_type = target.get("type", "file")
+                    
+                    print(f"  [CONTENT_VALIDATION] Checking {target_type}: '{target_path}'")
+                    
+                    # Simple validation like in exploration
+                    is_valid = False
+                    if target_type == "file" and available_files:
+                        if target_path in available_files:
+                            is_valid = True
+                        else:
+                            print(f"  [CONTENT_VALIDATION] File '{target_path}' not in available files: {available_files[:5]}")
+                    elif target_type == "directory" and available_dirs:
+                        if target_path in available_dirs:
+                            is_valid = True
+                        else:
+                            print(f"  [CONTENT_VALIDATION] Directory '{target_path}' not in available dirs: {available_dirs[:5]}")
+                    
+                    if is_valid:
+                        validated["follow_up_targets"].append(target)
+                        print(f"  [CONTENT_VALIDATION] Accepted {target_type}: {target_path}")
+                    else:
+                        print(f"  [CONTENT_VALIDATION] Rejected {target_type}: {target_path} (not available)")
+        
+        print(f"  [CONTENT_VALIDATION] {len(validated['follow_up_targets'])}/{len(follow_up_targets)} targets validated")
+        return validated
     
     def _execute_llm_decisions(self, decisions: Dict, explored_path: str, task_queue) -> Dict[str, Any]:
-        """Execute validated LLM decisions using consistent format"""
+        """Execute validated LLM decisions using unified path manager"""
         from ..core.task import Task, TaskType
         
         result = {
@@ -386,57 +457,58 @@ Respond ONLY in JSON format:
             "decision_details": []
         }
         
-        # Process analysis targets from validated decisions
+        # Process analysis targets from validated decisions using path manager
         analysis_targets = decisions.get("analysis_targets", [])
-        for target in analysis_targets:
-            target_path = target.get("path", "")
-            target_type = target.get("type", "file")
-            priority_level = target.get("priority", "medium")
-            reason = target.get("reason", "LLM autonomous decision")
+        if analysis_targets:
+            # Resolve all paths using the unified path manager
+            resolved_targets = self.path_manager.resolve_exploration_paths(analysis_targets, explored_path)
             
-            # Build full path
-            if explored_path and explored_path != ".":
-                full_path = os.path.join(explored_path, target_path)
-            else:
-                full_path = target_path
+            for target in resolved_targets:
+                target_path = target.get("path", "")
+                original_path = target.get("original_path", target_path)
+                target_type = target.get("type", "file")
+                priority_level = target.get("priority", "medium")
+                reason = target.get("reason", "LLM autonomous decision")
                 
-            # Assign priority directly based on LLM selection
-            # Higher priority values (0-100) mean higher importance
-            priority_values = {"high": 90, "medium": 70, "low": 50}
-            base_priority = priority_values.get(priority_level, 70)
-            # Add a small boost for LLM-selected paths
-            priority = min(base_priority + 5, 100)
-            
-            # Create appropriate task
-            if target_type == "file":
-                task = Task(
-                    type=TaskType.READ, 
-                    target=full_path, 
-                    priority=priority,
-                    focus_driven=True
-                )
-            else:  # directory
-                task = Task(
-                    type=TaskType.EXPLORE, 
-                    target=full_path, 
-                    priority=priority,
-                    focus_driven=True
-                )
-            
-            task_queue.add_task(task)
-            result["tasks_added"] += 1
-            result["decision_details"].append({
-                "type": target_type,
-                "path": full_path,
-                "priority": priority,
-                "reason": reason
-            })
+                print(f"  [PATH_MANAGER] Resolved {target_type}: '{original_path}' -> '{target_path}'")
+                
+                # Assign priority directly based on LLM selection
+                priority_values = {"high": 90, "medium": 70, "low": 50}
+                base_priority = priority_values.get(priority_level, 70)
+                # Add a small boost for LLM-selected paths
+                priority = min(base_priority + 5, 100)
+                
+                # Create appropriate task
+                if target_type == "file":
+                    task = Task(
+                        type=TaskType.READ, 
+                        target=target_path, 
+                        priority=priority,
+                        focus_driven=True
+                    )
+                else:  # directory
+                    task = Task(
+                        type=TaskType.EXPLORE, 
+                        target=target_path, 
+                        priority=priority,
+                        focus_driven=True
+                    )
+                
+                task_queue.add_task(task)
+                result["tasks_added"] += 1
+                result["decision_details"].append({
+                    "type": target_type,
+                    "path": target_path,
+                    "original_path": original_path,
+                    "priority": priority,
+                    "reason": reason
+                })
         
         result["decisions_made"] = len(analysis_targets)
         return result
     
     def _execute_content_follow_up(self, decisions: Dict, current_file_path: str, task_queue) -> Dict[str, Any]:
-        """Execute content-based follow-up decisions"""
+        """Execute content-based follow-up decisions with unified path manager"""
         from ..core.task import Task, TaskType
         
         result = {
@@ -445,44 +517,62 @@ Respond ONLY in JSON format:
             "decision_details": []
         }
         
-        # Add file reading tasks based on content analysis
+        # Use path manager to handle content follow-up paths correctly
         follow_up_files = decisions.get("follow_up_targets", [])
-        for target_info in follow_up_files:
-            if isinstance(target_info, dict):
+        if follow_up_files:
+            # Resolve all paths using the unified path manager with current file context
+            resolved_targets = self.path_manager.resolve_content_follow_up_paths(follow_up_files, current_file_path)
+            
+            for target_info in resolved_targets:
                 target_path = target_info.get("path", "")
+                original_path = target_info.get("original_path", target_path)
                 target_type = target_info.get("type", "file")
                 reason = target_info.get("reason", "content-based follow-up")
                 
+                print(f"  [CONTENT_FOLLOW_UP] Resolved {target_type}: '{original_path}' -> '{target_path}'")
+                
+                # Create task with resolved path
                 if target_type == "file":
-                    task = Task(TaskType.READ, target_path, priority=87)  # High priority for content follow-ups
+                    task = Task(TaskType.READ, target_path, priority=87)
                     task_queue.add_task(task)
+                    print(f"  [CONTENT_FOLLOW_UP] Added READ task: {target_path}")
                     result["tasks_added"] += 1
                     result["decision_details"].append({
-                        "type": "read",
+                        "type": "file",
                         "path": target_path,
-                        "reason": f"Content analysis follow-up: {reason}"
+                        "original_path": original_path,
+                        "reason": reason
                     })
                 elif target_type == "directory":
-                    if os.path.exists(target_path):  # Verify directory exists
-                        task = Task(TaskType.EXPLORE, target_path, priority=85)  # High priority
-                        task_queue.add_task(task)
-                        result["tasks_added"] += 1
-                        result["decision_details"].append({
-                            "type": "explore",
-                            "path": target_path,
-                            "reason": f"Content analysis follow-up: {reason}"
-                        })
+                    task = Task(TaskType.EXPLORE, target_path, priority=82)
+                    task_queue.add_task(task)
+                    print(f"  [CONTENT_FOLLOW_UP] Added EXPLORE task: {target_path}")
+                    result["tasks_added"] += 1
+                    result["decision_details"].append({
+                        "type": "directory",
+                        "path": target_path,
+                        "original_path": original_path,
+                        "reason": reason
+                    })
         
-        # Legacy support for simple explore_dirs list
+        # Legacy support for simple explore_dirs list - also use path manager
         explore_dirs = decisions.get("explore_dirs", [])
-        for dir_name in explore_dirs:
-            if os.path.exists(dir_name):  # Verify directory exists
-                task = Task(TaskType.EXPLORE, dir_name, priority=85)  # High priority
+        if explore_dirs:
+            # Convert to target format and resolve
+            legacy_targets = [{"path": dir_name, "type": "directory"} for dir_name in explore_dirs]
+            resolved_legacy = self.path_manager.resolve_content_follow_up_paths(legacy_targets, current_file_path)
+            
+            for target_info in resolved_legacy:
+                dir_path = target_info.get("path", "")
+                original_path = target_info.get("original_path", dir_path)
+                
+                task = Task(TaskType.EXPLORE, dir_path, priority=85)  # High priority
                 task_queue.add_task(task)
                 result["tasks_added"] += 1
                 result["decision_details"].append({
                     "type": "explore",
-                    "path": dir_name,
+                    "path": dir_path,
+                    "original_path": original_path,
                     "reason": "Content analysis - related directory"
                 })
         
@@ -628,8 +718,8 @@ Respond ONLY in JSON format:
                     print(f"    [SKIP] Missing action or target: action='{action}', target='{target}'")
                     continue
                 
-                # Use unified path validation
-                is_valid, validation_reason = self.path_validator.validate_target(target, action)
+                # Use unified path validation and resolution
+                normalized_target, is_valid, validation_reason = self.path_manager.validate_and_resolve_target(target, action)
                 if not is_valid:
                     print(f"    [SKIP] {validation_reason}: {target}")
                     continue
@@ -641,9 +731,6 @@ Respond ONLY in JSON format:
                     priority = 80  # High priority  
                 else:
                     priority = 60  # Low priority
-                
-                # Normalize target
-                normalized_target = self.path_validator.normalize_path(target)
                 
                 # Additional context validation for exploration
                 if action == "explore_directory":
@@ -702,7 +789,7 @@ Respond ONLY in JSON format:
                 target = action_info["target"]
                 action = action_info["action"]
                 
-                is_valid, validation_reason = self.path_validator.validate_target(target, action)
+                normalized_target, is_valid, validation_reason = self.path_manager.validate_and_resolve_target(target, action)
                 if is_valid:
                     # 使用与LLM priority assessment相同的逻辑
                     priority_str = action_info["priority"]
@@ -712,7 +799,6 @@ Respond ONLY in JSON format:
                         priority = 80  # High priority  
                     else:
                         priority = 60  # Low priority
-                    normalized_target = self.path_validator.normalize_path(target)
                     
                     if action == "explore_directory":
                         task = Task(TaskType.EXPLORE, normalized_target, priority=priority)

@@ -190,6 +190,18 @@ class AnalysisAgent:
             # 3. Execute the task
             print(f"\n[STEP {analysis_state['step'] + 1}/{max_steps}] Executing Task:")
             print(f"  Task: {task.type.value.upper()} → {task.target}")
+            print(f"  Current Repository: {self.repo_path}")
+            
+            # Determine current working directory for this task
+            if task.type.value == "EXPLORE" and task.target != ".":
+                # For EXPLORE tasks, the target becomes the new current directory
+                current_dir = task.target
+            else:
+                # For READ tasks, use parent directory of the file
+                current_dir = str(Path(task.target).parent) if "/" in task.target else "."
+            
+            print(f"  Current Working Directory: {current_dir}")
+            print(f"  Available Files in Current Directory: {len(self.tools.list_directory('.').get('files', []))}")
                 
             result = self._execute_task(task)
 
@@ -451,10 +463,17 @@ Respond in JSON format:
             
             # Use decision engine to generate follow-up tasks
             if files or dirs:
+                # Pass current directory context for proper path construction
+                current_explored_path = task.target
+                print(f"  [PATH_DEBUG] Current explored_path: {current_explored_path}")
+                print(f"  [PATH_DEBUG] Available files: {files[:10]} ({'...' if len(files) > 10 else f'total: {len(files)}'})")
+                print(f"  [PATH_DEBUG] Available dirs: {dirs[:10]} ({'...' if len(dirs) > 10 else f'total: {len(dirs)}'})")
+                print(f"  [PATH_DEBUG] Full dirs list: {dirs}")
+                
                 self.decision_engine.make_autonomous_decision(
                     "exploration", self.context_manager, self.task_queue, 
                     self.context.get_analyzed_files(), self.context.get_explored_directories(),
-                    explored_path=task.target, files=files, dirs=dirs, focus=focus
+                    explored_path=current_explored_path, files=files, dirs=dirs, focus=focus
                 )
                         
         elif task.type == TaskType.READ:

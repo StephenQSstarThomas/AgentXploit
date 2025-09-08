@@ -21,18 +21,21 @@ from typing import Dict, Any, List
 
 
 class PromptManager:
-    """Improved prompt manager focused on agent injection analysis"""
-    
+    """Strict prompt manager for agent injection analysis"""
+
     @staticmethod
-    def get_exploration_decision_prompt(history_context: str, exploration_context: str = None,
-                                      unexplored_areas: List[str] = None, root_unexplored: List[str] = None,
-                                      files: List[str] = None, dirs: List[str] = None,
-                                      context: Dict = None, focus: str = "security") -> str:
-        """Unified exploration decision prompt with smart parameter handling"""
-        
+    def get_exploration_decision_prompt(history_context: str,
+                                        exploration_context: str = None,
+                                        unexplored_areas: List[str] = None,
+                                        root_unexplored: List[str] = None,
+                                        files: List[str] = None,
+                                        dirs: List[str] = None,
+                                        context: Dict = None,
+                                        focus: str = "security") -> str:
+        """Unified exploration decision prompt with strict selection rules"""
+
         # Handle both calling patterns
         if context is not None:
-            # Called with context dict (new style)
             files = context.get('files', [])
             dirs = context.get('directories', [])
             explored_path = context.get('explored_path', '.')
@@ -40,86 +43,78 @@ class PromptManager:
             unexplored_areas = unexplored_areas or []
             root_unexplored = root_unexplored or []
         else:
-            # Called with individual parameters (old style)
             files = files or []
             dirs = dirs or []
             unexplored_areas = unexplored_areas or []
             root_unexplored = root_unexplored or []
             exploration_context = exploration_context or "Exploration in progress"
-        
-        return f"""FOCUS: You are analyzing for AGENT INJECTION vulnerabilities. Prioritize files/directories that could contain LLM interactions, tool execution, or agent workflow logic.
 
-{history_context}
+        return f"""FOCUS INSTRUCTIONS (READ CAREFULLY):
+- Goal: Analyze for **AGENT INJECTION vulnerabilities**.
+- STRICT RULE: You may ONLY select from the lists of AVAILABLE FILES and DIRECTORIES below.
+- Never assume or invent filenames or directories (e.g., do NOT propose 'main.py' unless it appears in the list).
+- Pick a maximum of 3 targets.
+
+SELECTION PRIORITY (apply only to the given lists):
+1. HIGH — Items most likely to contain LLM/agent logic, prompts, or tool execution:
+   - Files with relevant keywords (agent, llm, prompt, tool, executor, runtime, server, api, client, command, workflow, handler)
+   - Source code files (.py, .js, .ts)
+2. MEDIUM — Subdirectories likely to contain agent components (src/, core/, agents/, tools/, handlers/, api/, server/)
+3. LOW — Documentation and configs (*.md, LICENSE, config files)
+
+AVAILABLE FILES IN CURRENT DIRECTORY:
+{chr(10).join([f"- {f}" for f in files])}
+
+AVAILABLE SUBDIRECTORIES:
+{chr(10).join([f"- {d}" for d in dirs])}
+
+UNEXPLORED ROOT DIRECTORIES:
+{chr(10).join([f"- {d}" for d in root_unexplored])}
 
 {exploration_context}
 
-AVAILABLE FILES IN CURRENT DIRECTORY:
-{chr(10).join([f"- {f}" for f in files[:20]])}
+CONTEXT (for reference only, may be long):
+{history_context}
 
-AVAILABLE SUBDIRECTORIES:
-{chr(10).join([f"- {d}" for d in dirs[:15]])}
-
-UNEXPLORED ROOT DIRECTORIES:
-{chr(10).join([f"- {d}" for d in root_unexplored[:10]])}
-
-AGENT INJECTION ANALYSIS PRIORITY:
-1. HIGHEST PRIORITY - Files likely to contain agent/LLM logic:
-   - Files with keywords: agent, llm, prompt, tool, executor, runtime, server, api, client, command, workflow, handler
-   - Main application files: main.py, app.py, __init__.py
-   - Source code files: .py, .js, .ts files
-
-2. HIGH PRIORITY - Directories likely to contain agent components:
-   - src/, core/, agents/, tools/, handlers/, api/, server/
-   - Avoid: docs/, examples/, tests/, build/, dist/
-
-3. LOWER PRIORITY - Documentation and configuration:
-   - README.md, LICENSE, *.md files (analyze only if no higher priority targets)
-   - Configuration files: *.toml, *.json, *.yaml
-
-SELECTION STRATEGY:
-- Choose up to 3 targets from the available lists above
-- Prioritize source code and agent-related files over documentation
-- Focus on directories that likely contain core application logic
-- Only select files/directories that actually exist in the lists above
-
-Respond in JSON format:
+RESPONSE FORMAT (JSON only, strictly using names from the lists above):
 {{
-    "analysis_targets": [
-        {{
-            "type": "file|directory",
-            "path": "exact_path_from_available_lists_above",
-            "priority": "high|medium|low", 
-            "reason": "why important for agent injection analysis"
-        }}
-    ],
-    "strategy_explanation": "focus on agent injection points"
-}}"""
+  "analysis_targets": [
+    {{
+      "type": "file|directory",
+      "path": "exact_name_from_lists_above",
+      "priority": "high|medium|low",
+      "reason": "why important for agent injection analysis"
+    }}
+  ],
+  "strategy_explanation": "focus on agent injection points"
+}}
+"""
+
 
     @staticmethod
     def get_content_decision_prompt(history_context: str, context: Dict, focus: str = "security") -> str:
-        """Improved content decision prompt with better file filtering"""
-        
+        """Strict content decision prompt with available-file filtering"""
+    
         file_path = context.get('file_path', '')
         content = context.get('content', '')
         security_result = context.get('security_result', {})
-        
-        # Extract imports and references from content for intelligent follow-up
+        available_files = context.get('available_files', [])
+        available_dirs = context.get('available_dirs', [])
+    
+        # Extract imports and references (only used as hints, not direct selection)
         imports_found = []
         if content:
-            # Look for Python imports
             import re
             python_imports = re.findall(r'from\s+([a-zA-Z0-9_.]+)\s+import|import\s+([a-zA-Z0-9_.]+)', content)
             for match in python_imports:
                 module = match[0] or match[1]
                 if module and '.' in module:
-                    # Convert module to potential file path
                     file_candidate = module.replace('.', '/') + '.py'
                     imports_found.append(file_candidate)
-            
-            # Look for file references in configuration
+    
             file_refs = re.findall(r'[\'"]([^\'\"]*\.(?:py|js|ts|json|toml|yaml|yml))[\'"]', content)
             imports_found.extend(file_refs[:3])
-        
+    
         # Build analyzed files list from history
         analyzed_files_list = []
         if history_context and "ANALYZED FILES" in history_context:
@@ -134,38 +129,46 @@ Respond in JSON format:
                     analyzed_files_list.append(file_name)
                 elif line.strip() and not line.startswith('-') and in_section:
                     break
+    
+        return f"""You are analyzing file content for agent injection vulnerabilities. 
+    Make follow-up decisions using STRICT selection rules.
+    
+    CURRENT FILE: {file_path}
+    SECURITY RISK: {security_result.get('risk_assessment', {}).get('overall_risk', 'UNKNOWN')}
+    
+    ALREADY ANALYZED FILES (DO NOT suggest these):
+    {chr(10).join([f"- {f}" for f in analyzed_files_list[-10:]])}
+    
+    IMPORT/REFERENCE HINTS (for prioritization only, do not invent new paths):
+    {chr(10).join([f"- {imp}" for imp in imports_found[:5]])}
+    
+    AVAILABLE FILES IN CURRENT DIRECTORY:
+    {chr(10).join([f"- {f}" for f in available_files[:20]])}
+    
+    AVAILABLE SUBDIRECTORIES:
+    {chr(10).join([f"- {d}" for d in available_dirs[:15]])}
+    
+    FOLLOW-UP STRATEGY:
+    1. If current file has HIGH/MEDIUM risk → prefer related files in the same directory (from AVAILABLE FILES).
+    2. If current file imports modules → check if those modules exist in AVAILABLE FILES or SUBDIRECTORIES before selecting.
+    3. If current file is agent/tool related → explore nearby handler/config files, but only if present in the AVAILABLE lists.
+    4. Avoid documentation (*.md, LICENSE, etc.).
+    5. Maximum 2 follow-up targets.
+    
+    STRICT RULES:
+    - DO NOT invent or assume paths. 
+    - Select ONLY from the AVAILABLE FILES and SUBDIRECTORIES above.
+    - Suggested targets must exactly match names from the lists.
+    
+    Respond in JSON format:
+    {{
+        "follow_up_targets": [
+            {{"path": "exact_match_from_available_lists", "type": "file|directory", "priority": 80, "reason": "why chosen"}},
+            {{"path": "exact_match_from_available_lists", "type": "file|directory", "priority": 70, "reason": "why chosen"}}
+        ],
+        "exploration_strategy": "focus on realistic, available files related to agent injection"
+    }}"""
 
-        return f"""You are analyzing file content for agent injection vulnerabilities. Make intelligent follow-up decisions.
-
-CURRENT FILE: {file_path}
-SECURITY RISK: {security_result.get('risk_assessment', {}).get('overall_risk', 'UNKNOWN')}
-
-ALREADY ANALYZED FILES (DO NOT suggest these):
-{chr(10).join([f"- {f}" for f in analyzed_files_list[-10:]])}
-
-IMPORTS/REFERENCES FOUND IN CURRENT FILE:
-{chr(10).join([f"- {imp}" for imp in imports_found[:5]])}
-
-INTELLIGENT FOLLOW-UP STRATEGY:
-1. If current file has HIGH/MEDIUM risk → look for related files in same directory
-2. If current file imports other modules → analyze those imported files
-3. If current file is agent/tool related → look for configuration or handler files
-4. Focus on files that could complete the attack chain analysis
-
-FOLLOW-UP RULES:
-- Suggest ONLY files that likely exist and are relevant to injection analysis
-- Prioritize imported files and same-directory files over random suggestions
-- Avoid suggesting documentation files (*.md, LICENSE, etc.)
-- Maximum 2 follow-up targets
-
-Respond in JSON format:
-{{
-    "follow_up_targets": [
-        {{"path": "realistic_file_path", "type": "file", "priority": 80, "reason": "imported by current file"}},
-        {{"path": "realistic_directory", "type": "directory", "priority": 75, "reason": "likely contains related components"}}
-    ],
-    "exploration_strategy": "follow imports and related components"
-}}"""
 
     @staticmethod
     def get_context_reassessment_prompt(history_context: str, current_state: Dict,

@@ -342,8 +342,8 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
         print("5. Performs LLM-driven injection point analysis")
         print("=" * 40)
         
-        # Import the exploit agent for LLM-driven analysis
-        from .agents.exploit_agent import execute_llm_driven_analysis, setup_analysis_environment
+        # Import the exploit agent for interactive analysis
+        from .agents.exploit_agent import execute_interactive_analysis, setup_analysis_environment
         
         # Configuration
         target_path = args.repository
@@ -385,12 +385,12 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
         if 'dependencies_installed' in env_result:
             print(f"✓ Dependencies installed: {env_result['dependencies_installed']}")
         
-        print(f"\nStarting LLM-driven injection analysis...")
+        print(f"\nStarting interactive injection analysis...")
         
-        # Step 2: Execute LLM-driven analysis
-        result = await execute_llm_driven_analysis(
+        # Step 2: Execute interactive analysis
+        result = await execute_interactive_analysis(
             target_path=target_path,
-            auto_execute=True
+            require_user_input=True
         )
         
         # Display results
