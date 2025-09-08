@@ -6,11 +6,11 @@
 !pyproject.toml
 !README.md
 !src/
-!src/injection_agent/
-!src/injection_agent/**
+!src/AgentXploit/
+!src/AgentXploit/**
 
 # Still ignore common artifacts
-src/injection_agent/.claude
+src/AgentXploit/.claude
 **/__pycache__/
 *.py[cod]
 *$py.class
