@@ -19,6 +19,9 @@ import os
 import sys
 from typing import Optional
 
+# Setup logger
+logger = logging.getLogger(__name__)
+
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 from .agent import root_agent
@@ -387,10 +390,14 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
         
         print(f"\nStarting interactive injection analysis...")
         
-        # Step 2: Execute interactive analysis
+        # Step 2: Execute interactive analysis with existing deployment
+        deployment_id = env_result.get('deployment_id')
+        logger.info(f"Using existing deployment for analysis: {deployment_id}")
+        
         result = await execute_interactive_analysis(
             target_path=target_path,
-            require_user_input=True
+            require_user_input=True,
+            existing_deployment_id=deployment_id  # 传递现有的 deployment_id
         )
         
         # Display results
@@ -514,7 +521,7 @@ async def interactive_command_session(deployment_id: str, analyzer) -> None:
     print("Special commands: 'exit' to quit, 'status' for info")
     print("-" * 50)
     
-    from .tools.exploit.swerex import execute_command as swerex_execute
+    from .tools.exploit.subprocess_docker import execute_container_command as subprocess_execute
     
     while True:
         try:
@@ -535,7 +542,7 @@ async def interactive_command_session(deployment_id: str, analyzer) -> None:
             
             # Execute command in Docker environment
             print(f"Executing: {command}")
-            result = await swerex_execute(
+            result = await subprocess_execute(
                 command=command,
                 deployment_id=deployment_id,
                 timeout=30.0

@@ -33,7 +33,7 @@ class SessionInfo:
     image: Optional[str] = None
 
 
-class SubprocessTool:
+class CommandExecutor:
     """
     Subprocess-based tool for bash execution and docker environment deployment.
     Supports docker deployments with command execution via subprocess.
@@ -417,7 +417,7 @@ class SubprocessTool:
 
 
 # Global instance for easy access
-swerex_tool = SubprocessTool()
+command_executor = CommandExecutor()
 
 
 # Convenience functions for common operations
@@ -426,7 +426,7 @@ async def execute_bash_command(
     deployment_id: Optional[str] = None
 ) -> ExecutionResult:
     """
-    Execute a bash command using the global subprocess tool instance.
+    Execute a bash command using the global command executor instance.
     
     Args:
         command: Command to execute
@@ -435,7 +435,7 @@ async def execute_bash_command(
     Returns:
         ExecutionResult with command output
     """
-    return await swerex_tool.execute_command(command, deployment_id)
+    return await command_executor.execute_command(command, deployment_id)
 
 
 async def create_docker_environment(
@@ -443,7 +443,7 @@ async def create_docker_environment(
     deployment_id: str = "docker"
 ) -> str:
     """
-    Create a docker environment using the global subprocess tool instance.
+    Create a docker environment using the global command executor instance.
     
     Args:
         image: Docker image to use
@@ -452,12 +452,12 @@ async def create_docker_environment(
     Returns:
         deployment_id: The ID of the created deployment
     """
-    return await swerex_tool.create_docker_deployment(image, deployment_id)
+    return await command_executor.create_docker_deployment(image, deployment_id)
 
 
 async def create_local_environment(deployment_id: str = "local") -> str:
     """
-    Create a local environment using the global subprocess tool instance.
+    Create a local environment using the global command executor instance.
     
     Args:
         deployment_id: Unique identifier for the deployment
@@ -465,7 +465,7 @@ async def create_local_environment(deployment_id: str = "local") -> str:
     Returns:
         deployment_id: The ID of the created deployment
     """
-    return await swerex_tool.create_local_deployment(deployment_id)
+    return await command_executor.create_local_deployment(deployment_id)
 
 
 async def setup_openhands_environment(deployment_id: str = "openhands") -> str:
@@ -478,7 +478,7 @@ async def setup_openhands_environment(deployment_id: str = "openhands") -> str:
     Returns:
         deployment_id: The ID of the created deployment
     """
-    return await swerex_tool.create_openhands_deployment(deployment_id)
+    return await command_executor.create_openhands_deployment(deployment_id)
 
 
 async def run_workflow_analysis(
@@ -496,7 +496,7 @@ async def run_workflow_analysis(
         ExecutionResult with analysis output
     """
     # First check if the path exists
-    path_check = await swerex_tool.execute_command(f"ls -la '{target_agent_path}'", deployment_id)
+    path_check = await command_executor.execute_command(f"ls -la '{target_agent_path}'", deployment_id)
     if path_check.exit_code != 0:
         # Try to find the actual path
         alt_paths = [
@@ -508,7 +508,7 @@ async def run_workflow_analysis(
         
         found_path = None
         for alt_path in alt_paths:
-            check = await swerex_tool.execute_command(f"ls -la '{alt_path}' 2>/dev/null", deployment_id)
+            check = await command_executor.execute_command(f"ls -la '{alt_path}' 2>/dev/null", deployment_id)
             if check.exit_code == 0:
                 found_path = alt_path
                 break
@@ -533,7 +533,7 @@ async def run_workflow_analysis(
     
     results = []
     for cmd in analysis_commands:
-        result = await swerex_tool.execute_command(cmd, deployment_id)
+        result = await command_executor.execute_command(cmd, deployment_id)
         results.append(f"Command: {cmd}\n{result.stdout}\n{result.stderr}\n")
     
     return ExecutionResult(
@@ -545,4 +545,4 @@ async def run_workflow_analysis(
 
 
 # Alias for backward compatibility
-SWEReXTool = SubprocessTool
+SWEReXTool = CommandExecutor

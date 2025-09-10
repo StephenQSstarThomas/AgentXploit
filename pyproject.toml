@@ -16,8 +16,7 @@ authors = [
 dependencies = [
     "google-adk==1.0.0",
     "litellm==1.74.3",
-    "python-dotenv==1.0.0",
-    "swe-rex>=1.4.0",
+    "python-dotenv==1.1.1",
     "requests>=2.25.0",
     "pathlib2>=2.3.0",
     "asyncio>=3.4.3",
