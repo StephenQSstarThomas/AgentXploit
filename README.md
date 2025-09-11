@@ -213,23 +213,6 @@ agentxploit static -r ./agent_repo/ -v --max-files 30
 agentxploit comprehensive -r ./agent_repo/ -s technical
 ```
 
-## Security Considerations
-
-⚠️ **This tool is for security research and authorized testing only:**
-
-1. **Only use on systems you own or have explicit permission to test**
-2. **Do not use for malicious purposes**  
-3. **Be aware that injected commands could be executed by AI systems**
-4. **Review all custom payloads before use**
-5. **Follow responsible disclosure practices**
-
-## Performance & Costs
-
-- **Default**: 3 concurrent workers for batch processing
-- **Recommended**: 5-8 workers for optimal throughput
-- **Cost Management**: Use `--dry-run` for testing without API costs
-- **Each analysis**: ~2-3 API calls to GPT-4o
-
 ## Project Structure
 
 ```
