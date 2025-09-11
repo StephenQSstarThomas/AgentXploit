@@ -67,36 +67,19 @@ class SecurityAnalyzer:
         # Calculate overall risk assessment
         risk_assessment = self._calculate_risk_assessment(findings)
 
-        # For LOW risk files, provide minimal output using LLM helper
-        if risk_assessment["overall_risk"] == "LOW":
-            # Use LLM helper to generate proper summary for LOW risk files
-            llm_helper = self._get_llm_helper()
-            llm_result = llm_helper.analyze_code_snippet(content, file_path)
+        # IMPORTANT: Always extract tool and dataflow information regardless of security risk
+        # Even LOW risk files may contain important tool implementations and dataflow patterns
 
-            # Create minimal risk assessment
-            minimal_risk_assessment = {
-                "overall_risk": "LOW",
-                "risk_score": 0
-            }
-
-            # Use LLM-generated summary, fallback to simple message if LLM fails
-            if "analysis" in llm_result:
-                summary = llm_result["analysis"]
-            else:
-                summary = "File analysis completed, no significant security risks found"
-
-            return {
-                "file_path": file_path,
-                "analysis_timestamp": self._get_timestamp(),
-                "risk_assessment": minimal_risk_assessment,
-                "summary": summary,
-                "llm_analysis": llm_result
-            }
-
-        # Extract tool and dataflow information for report
+        # Extract tool and dataflow information for ALL files (regardless of risk level)
         tool_analysis = llm_analysis.get("tool_analysis", {})
         agent_tools = self._extract_agent_tools_summary(tool_analysis)
         dataflow_analysis = self._extract_dataflow_summary(tool_analysis)
+        
+        # Log dataflow detection results for debugging
+        if agent_tools or dataflow_analysis:
+            print(f"  [DATAFLOW_DETECTED] {file_path}: {len(agent_tools)} tools, {len(dataflow_analysis)} flows")
+        else:
+            print(f"  [DATAFLOW_NONE] {file_path}: No tools or dataflow patterns detected")
 
         return {
             "file_path": file_path,
@@ -119,36 +102,30 @@ class SecurityAnalyzer:
         file_extension = file_path.split('.')[-1].lower() if '.' in file_path else 'unknown'
 
         # Let LLM analyze ALL files - no rule-based pre-filtering
-        # LLM will determine tool/dataflow relevance for any file type
-        prompt = f"""Analyze this {file_extension} file for TOOL USE and DATAFLOW patterns that could lead to \
-injection vulnerabilities:
+        # Focused prompt specifically for dataflow detection
+        prompt = f"""Analyze this file for AGENT TOOLS and DATA FLOWS:
 
 File: {file_path}
-Lines: {len(lines)}
-
 Content:
-{content[:2000]}{'...' if len(content) > 2000 else ''}
+{content[:1800]}{'...' if len(content) > 1800 else ''}
 
-**PRIMARY ANALYSIS FOCUS - Tool Use and Data Flow:**
+FIND THESE PATTERNS:
 
-1. **TOOL IDENTIFICATION**: What tools/functions does this component provide or use?
-   - LLM interaction functions (chat completions, embeddings, etc.)
-   - File processing tools (read, write, upload, download)
-   - Command execution tools (subprocess, shell commands, docker)
-   - API/web request tools (HTTP clients, webhooks, crawlers)
-   - Data processing functions (parsers, validators, transformers)
+1. TOOLS - Any function that:
+   - Reads/writes files
+   - Makes API calls  
+   - Executes commands
+   - Processes user input
+   - Calls LLM services
+   - Transforms data
 
-2. **DATA FLOW MAPPING**: How does data flow through this component?
-   - External input sources (user input, file uploads, API responses, web scraping)
-   - Data processing/transformation steps (parsing, validation, formatting)
-   - Output destinations (LLM prompts, tool parameters, file writes, API calls)
-   - Data validation/sanitization points (where input is cleaned or validated)
+2. DATAFLOWS - How data moves:
+   - Input -> Processing -> Output
+   - External sources (files, APIs, users)
+   - Data transformations
+   - Output destinations
 
-3. **INJECTION POINT ANALYSIS**: Where in the dataflow could malicious input cause problems?
-   - Gaps in input sanitization before LLM processing
-   - Tool parameter construction from untrusted sources
-   - Dynamic prompt building with external data
-   - Command execution with unsanitized parameters
+IMPORTANT: Look for ANY data processing, even in simple utility functions or configuration handlers.
 
 Format response as JSON:
 {{
@@ -157,20 +134,16 @@ Format response as JSON:
     "tool_analysis": {{
         "identified_tools": [
             {{
-                "tool_name": "specific_tool_or_function_name",
-                "tool_type": "llm_interface|file_processor|command_executor|api_client|data_transformer",
-                "description": "what this tool does",
-                "input_sources": ["where_data_comes_from"],
-                "output_destinations": ["where_data_goes_to"]
+                "tool_name": "function_name",
+                "tool_type": "file_processor|api_client|command_executor|data_transformer|llm_interface",
+                "description": "what it does"
             }}
         ],
         "dataflow_patterns": [
             {{
                 "flow_id": "flow_1", 
-                "description": "brief description of this data flow",
-                "data_path": "source -> processing_step -> destination",
-                "external_input": "yes|no",
-                "sanitization": "yes|no|partial",
+                "description": "data flow description",
+                "data_path": "input -> process -> output",
                 "risk_level": "HIGH|MEDIUM|LOW"
             }}
         ]
@@ -190,24 +163,64 @@ Format response as JSON:
     "summary": "Brief summary of tool capabilities and dataflow risks"
 }}"""
 
-        # Use centralized LLM client - same parameters for all files
+        # Use centralized LLM client with higher temperature for better detection
         result_text = LLMClient.call_llm(
             model=LLMClient.get_model(),
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1200,
-            temperature=0.1,
-            timeout=30,
+            messages=[
+                {"role": "system", "content": "You are an expert security analyst specializing in agent tool implementations and dataflow analysis. ALWAYS return valid JSON with tool_analysis section, even if no patterns found. Be thorough in identifying ANY data processing patterns, tool functions, or external interactions, even in seemingly simple files."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1500,
+            temperature=0.4,  # Increased for better pattern recognition
+            timeout=35,
             max_retries=3
         )
+        
+        print(f"  [LLM_RESPONSE] Got response: {len(result_text) if result_text else 0} characters")
 
         if result_text:
-            # Try to parse JSON response
+            # Try to parse JSON response with enhanced error handling
             try:
                 import json
+                # First try direct parsing
                 parsed_result = json.loads(result_text)
+                
+                # Validate required structure
+                if "tool_analysis" not in parsed_result:
+                    print(f"  [WARNING] LLM response missing tool_analysis for {file_path}")
+                    parsed_result["tool_analysis"] = {"identified_tools": [], "dataflow_patterns": []}
+                
+                # Log successful dataflow/tool detection
+                tool_analysis = parsed_result.get("tool_analysis", {})
+                tools_count = len(tool_analysis.get("identified_tools", []))
+                flows_count = len(tool_analysis.get("dataflow_patterns", []))
+                if tools_count > 0 or flows_count > 0:
+                    print(f"  [DATAFLOW_SUCCESS] Found {tools_count} tools, {flows_count} dataflow patterns in {file_path}")
+                
                 return parsed_result
-            except Exception:
-                # If JSON parsing fails, return structured response
+                
+            except json.JSONDecodeError as e:
+                print(f"  [JSON_ERROR] Failed to parse LLM response for {file_path}: {e}")
+                print(f"  [JSON_ERROR] Response preview: {result_text[:200]}...")
+                
+                # Try to extract JSON from response if it's embedded
+                try:
+                    start_idx = result_text.find('{')
+                    end_idx = result_text.rfind('}') + 1
+                    if start_idx != -1 and end_idx > start_idx:
+                        json_str = result_text[start_idx:end_idx]
+                        parsed_result = json.loads(json_str)
+                        print(f"  [JSON_RECOVERY] Successfully extracted JSON from response")
+                        
+                        # Validate structure
+                        if "tool_analysis" not in parsed_result:
+                            parsed_result["tool_analysis"] = {"identified_tools": [], "dataflow_patterns": []}
+                        
+                        return parsed_result
+                except:
+                    pass
+                
+                # If all parsing fails, return structured response with debug info
                 return {
                     "overall_risk": "MEDIUM",
                     "risk_score": 50,
@@ -219,7 +232,8 @@ Format response as JSON:
                         "potential_injection_points": []
                     },
                     "summary": result_text[:500],
-                    "llm_raw_response": result_text
+                    "llm_raw_response": result_text,
+                    "parse_error": str(e)
                 }
         else:
             return {

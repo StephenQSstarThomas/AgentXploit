@@ -4,6 +4,7 @@ All exploration decisions are made by LLM, no rule-based logic
 """
 
 from typing import Dict, List, Any
+from pathlib import Path
 
 
 class ExplorationStrategies:
@@ -37,7 +38,7 @@ class ExplorationStrategies:
                     if "error" not in dir_result:
                         subdirs = dir_result.get("directories", [])
                         for subdir in subdirs:
-                            subdir_path = f"{explored_dir.rstrip('/')}/{subdir}"
+                            subdir_path = str(Path(explored_dir) / subdir).replace('\\', '/')
                             if not self.context.is_directory_explored(subdir_path):
                                 unexplored_subdirs.append(subdir_path)
                 except:

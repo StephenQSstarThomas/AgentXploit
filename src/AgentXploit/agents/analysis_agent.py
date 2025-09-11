@@ -92,7 +92,21 @@ class AnalysisAgent:
         # Initialize LLM helper for code analysis
         from ..tools.code_analysis.llm_decider import LLMHelper
         self.llm = LLMHelper()
-        
+    
+    def _build_file_path(self, directory: str, filename: str) -> str:
+        """Build normalized file path to prevent duplicates"""
+        try:
+            # Use pathlib for proper path joining
+            if directory == ".":
+                return filename
+            else:
+                # Normalize the path construction
+                dir_path = Path(directory)
+                full_path = dir_path / filename
+                return str(full_path).replace('\\', '/')
+        except Exception:
+            # Fallback to string concatenation if pathlib fails
+            return f"{directory.rstrip('/')}/{filename}"
     def analyze(self, max_steps: Optional[int] = None, save_results: bool = True, focus: str = None) -> Dict[str, Any]:
         """
         Autonomous agent-driven analysis using discoveries and context for intelligent decision making
@@ -370,12 +384,12 @@ class AnalysisAgent:
                         dir_subdirs = dir_result.get("directories", [])
                         
                         for file in dir_files:
-                            file_path = f"{explored_dir}/{file}" if explored_dir != "." else file
+                            file_path = self._build_file_path(explored_dir, file)
                             if file_path not in analyzed_files and not file.startswith('.'):
                                 all_files.append(file_path)
                         
                         for subdir in dir_subdirs:
-                            subdir_path = f"{explored_dir}/{subdir}" if explored_dir != "." else subdir
+                            subdir_path = self._build_file_path(explored_dir, subdir)
                             if (subdir_path not in explored_dirs and 
                                 not subdir.startswith('.') and 
                                 subdir not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
@@ -427,14 +441,15 @@ SELECTION CRITERIA:
 2. Focus on core application logic, configuration, and entry points  
 3. Explore directories likely to contain important components
 4. Avoid redundant analysis of similar file types
+5. **BE HIGHLY EFFICIENT**: Focus on targets for tool/dataflow analysis, avoid broad exploration
 
-Select up to 5 targets (mix of files and directories) that would provide the most security insight.
+Select up to 3 targets that would provide the most tool/dataflow insight.
 
 Respond in JSON format:
 {{
     "selected_targets": [
-        {{"type": "file", "path": "exact_path_from_available_list", "priority": 90, "reason": "why important"}},
-        {{"type": "directory", "path": "exact_path_from_available_list", "priority": 80, "reason": "why important"}}
+        {{"type": "file", "path": "exact_path_from_available_list", "priority": "high", "reason": "why important"}},
+        {{"type": "directory", "path": "exact_path_from_available_list", "priority": "medium", "reason": "why important"}}
     ],
     "strategy": "brief explanation of selection strategy"
 }}"""
@@ -466,8 +481,15 @@ Respond in JSON format:
                     for target_info in decisions.get("selected_targets", []):
                         target_path = target_info.get("path", "")
                         target_type = target_info.get("type", "file")
-                        priority = target_info.get("priority", 75)
+                        priority_str = target_info.get("priority", "medium")
                         reason = target_info.get("reason", "LLM selection")
+                        
+                        # Convert priority to numeric value
+                        from ..tools.core.task import PRIORITY_MAPPING
+                        if isinstance(priority_str, str):
+                            priority = PRIORITY_MAPPING.get(priority_str, PRIORITY_MAPPING["default"])
+                        else:
+                            priority = int(priority_str) if isinstance(priority_str, (int, float)) else PRIORITY_MAPPING["default"]
                         
                         # Validate target exists in available lists
                         if target_type == "file" and target_path in available_files:
@@ -535,11 +557,46 @@ Respond in JSON format:
                 security_result = self.security_analyzer.analyze_file_security(task.target, file_content)
                 analysis_state['security_findings'].append(security_result)
                 
+                # Add security_result to the task result for ExecutionLogger
+                result['security_result'] = security_result
+                
                 # Record analysis results
                 risk_level = security_result["risk_assessment"]["overall_risk"]
                 if risk_level in ["HIGH", "MEDIUM"]:
                     self.context.set_data(f"security_concern_{task.target}", True)
                     print(f"  Security Risk: {risk_level}")
+                
+                # Debug: Print detailed dataflow information
+                agent_analysis = security_result.get("agent_analysis", {})
+                print(f"  [DEBUG] Agent analysis present: {bool(agent_analysis)}")
+                if agent_analysis:
+                    dataflow_patterns = agent_analysis.get("dataflow_patterns", [])
+                    agent_tools = agent_analysis.get("agent_tools", [])
+                    print(f"  [DEBUG] Raw dataflow_patterns: {dataflow_patterns}")
+                    print(f"  [DEBUG] Raw agent_tools: {agent_tools}")
+                    
+                    if dataflow_patterns:
+                        print(f"  ✓ Dataflow Patterns: {len(dataflow_patterns)} found")
+                        high_risk_flows = [f for f in dataflow_patterns if f.get("risk_level") == "HIGH"]
+                        if high_risk_flows:
+                            print(f"  ✓ High-Risk Flows: {len(high_risk_flows)}")
+                    else:
+                        print(f"  ✗ No dataflow patterns detected")
+                        
+                    if agent_tools:
+                        print(f"  ✓ Agent Tools: {len(agent_tools)} identified")
+                    else:
+                        print(f"  ✗ No agent tools detected")
+                else:
+                    print(f"  ✗ No agent_analysis in security result")
+                    # Debug: Print what we got instead
+                    print(f"  [DEBUG] Security result keys: {list(security_result.keys())}")
+                    if "llm_analysis" in security_result:
+                        llm_analysis = security_result["llm_analysis"]
+                        print(f"  [DEBUG] LLM analysis keys: {list(llm_analysis.keys()) if isinstance(llm_analysis, dict) else 'not dict'}")
+                        if isinstance(llm_analysis, dict) and "tool_analysis" in llm_analysis:
+                            tool_analysis = llm_analysis["tool_analysis"]
+                            print(f"  [DEBUG] Tool analysis: {tool_analysis}")
                 
                 analysis_data = {
                     "security_risk": risk_level.lower(),
@@ -630,20 +687,16 @@ Respond in JSON format:
                         reason = file_info.get("reason", "")
 
                         if filename in files:
-                            # Construct full path
-                            file_path = f"{explored_path.rstrip('/')}/{filename}"
+                            # Construct full path using normalized method
+                            file_path = self._build_file_path(explored_path, filename)
 
                             # Skip if already analyzed
                             if self.context.is_file_analyzed(file_path):
                                 continue
 
-                            # Set priority level based on LLM assessment
-                            if priority == "high":
-                                task_priority = 95  # Very high priority
-                            elif priority == "medium":
-                                task_priority = 80  # High priority  
-                            else:
-                                task_priority = 60  # Low priority
+                            # Set priority level based on LLM assessment using unified mapping
+                            from ..tools.core.task import PRIORITY_MAPPING
+                            task_priority = PRIORITY_MAPPING.get(priority, PRIORITY_MAPPING["default"])
                             
                             print(f"    [PRIORITY_ASSIGN] {filename}: {priority} → priority {task_priority}")
 
@@ -1200,14 +1253,16 @@ DISCOVERED FILES:
 
             # Create appropriate task with improved error handling
             try:
+                # Unified priority mapping
+                from ..tools.core.task import PRIORITY_MAPPING
+                task_priority = PRIORITY_MAPPING.get(priority, PRIORITY_MAPPING["default"])
+                
                 if action_type == "explore_directory":
-                    task = Task(type=TaskType.EXPLORE, target=target,
-                               priority=80 if priority == "high" else 60 if priority == "medium" else 40)
-                    print(f"  [EXPLORE] {target} ({reason})")
+                    task = Task(type=TaskType.EXPLORE, target=target, priority=task_priority)
+                    print(f"  [EXPLORE] {target} (priority: {task_priority}) - {reason}")
                 elif action_type == "analyze_file":
-                    task = Task(type=TaskType.READ, target=target,
-                               priority=85 if priority == "high" else 65 if priority == "medium" else 45)
-                    print(f"  [ANALYZE] {target} ({reason})")
+                    task = Task(type=TaskType.READ, target=target, priority=task_priority)
+                    print(f"  [ANALYZE] {target} (priority: {task_priority}) - {reason}")
 
                 self.task_queue.add_task(task)
                 executed_count += 1
@@ -1309,26 +1364,7 @@ DISCOVERED FILES:
                     if isinstance(item, dict):
                         self._extract_file_paths_from_dict(item, file_list)
 
-    def _investigate_related_files(self, file_path: str, content: str) -> None:
-        """Investigate files related to a high-risk file"""
-        from ..tools.core.task import Task, TaskType
-
-        # Look for configuration files in the same directory
-        directory = '/'.join(file_path.split('/')[:-1])
-        if directory:
-            try:
-                dir_result = self.tools.list_directory(directory)
-                if "error" not in dir_result:
-                    files = dir_result.get("files", [])
-                    config_files = [f for f in files if f.endswith(('.json', '.toml', '.yaml', '.yml', '.py'))]
-                    for config_file in config_files[:2]:
-                        config_path = f"{directory}/{config_file}"
-                        if not self.context.is_file_analyzed(config_path):
-                            read_task = Task(type=TaskType.READ, target=config_path, priority=85)
-                            self.task_queue.add_task(read_task)
-                            print(f"  Investigating related config: {config_file}")
-            except Exception as e:
-                print(f"Related file investigation failed: {e}")
+    # REMOVED: _investigate_related_files - was rule-based, now handled by LLM decisions
     
     def _execute_task(self, task) -> Dict[str, Any]:
         """Execute a single task and return standardized result format with improved path resolution"""
@@ -1346,6 +1382,26 @@ DISCOVERED FILES:
         }
 
         try:
+            # Final deduplication check before execution
+            if task.type == TaskType.READ and self.context.is_file_analyzed(task.target):
+                duration = time.time() - start_time
+                result_template.update({
+                    "success": False,
+                    "duration": duration,
+                    "error": f"File already analyzed: {task.target} (duplicate detected at execution time)"
+                })
+                print(f"    [DUPLICATE_SKIP] File already analyzed: {task.target}")
+                return result_template
+            elif task.type == TaskType.EXPLORE and self.context.is_directory_explored(task.target):
+                duration = time.time() - start_time
+                result_template.update({
+                    "success": False,
+                    "duration": duration,
+                    "error": f"Directory already explored: {task.target} (duplicate detected at execution time)"
+                })
+                print(f"    [DUPLICATE_SKIP] Directory already explored: {task.target}")
+                return result_template
+
             # Improved path resolution and validation
             target_path = task.target.strip()
             # Handle relative paths correctly

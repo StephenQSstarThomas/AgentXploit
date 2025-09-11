@@ -73,6 +73,7 @@ CRITICAL RULES:
 2. NEVER add '.py' to directory names
 3. If it's in SUBDIRECTORIES list, it's a directory, NOT a file
 4. Focus on AGENT TOOLS and DATAFLOW for {focus} analysis
+5.**BE EFFICIENT**: Choose targets for tool/dataflow analysis - avoid broad exploration
 
 RESPONSE FORMAT (JSON only, using EXACT names from lists):
 {{
@@ -156,6 +157,7 @@ AGENT TOOL & DATAFLOW FOCUS FOR {focus.upper()} ANALYSIS:
 2. PRIORITIZE dataflow patterns
 3. AVOID documentation unless they define tool interfaces
 4. AVOID generic files unless they process external data or implement tools
+5. ⚡ **BE HIGHLY SELECTIVE**: Focus on files most likely to contain tool implementations or dataflow logic - avoid extensive reading
 
 FOLLOW-UP STRATEGY FOR {focus.upper()}:
 1. If current file contains tool definitions -> find files that USE these tools
@@ -172,8 +174,8 @@ ABSOLUTE RULES:
 Respond in JSON format:
 {{
     "follow_up_targets": [
-        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": 80, "reason": "agent tool or dataflow related"}},
-        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": 70, "reason": "agent tool or dataflow related"}}
+        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "high", "reason": "agent tool or dataflow related"}},
+        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "medium", "reason": "agent tool or dataflow related"}}
     ],
     "exploration_strategy": "focus on agent tools and dataflow patterns for {focus} analysis, not documentation"
 }}"""
@@ -205,6 +207,7 @@ STRATEGIC PRIORITIES FOR {focus.upper()} ANALYSIS:
 3. Focus on directories suggesting external interaction
 4. Prioritize directories that are likely to contain tool chains and dataflow patterns
 5. Avoid: documentation directories unless they contain tool configurations or data samples
+6. **STRATEGIC FOCUS**: Select areas for tool/dataflow discovery - avoid broad exploration
 
 Select the MOST PROMISING unexplored area for tool chain and dataflow analysis focused on {focus}.
 
@@ -296,7 +299,8 @@ CRITICAL SELECTION PRIORITIES FOR {focus.upper()}:
    - Tool chain implementations
    - Inter-service communication
 
-SELECT MAXIMUM 3 FILES - ALL SHOULD BE IMPLEMENTATION CODE, NOT DOCUMENTATION
+**EFFICIENCY REQUIREMENT**: Be highly efficient - avoid broad reading patterns. Focus on files most likely to contain actual tool implementations and dataflow logic rather than reading extensively.
+
 
 Respond in JSON format:
 {{

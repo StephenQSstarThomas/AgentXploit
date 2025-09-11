@@ -210,7 +210,7 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
                             try:
                                 sibling_result = tools.list_directory(full_sibling_path)
                                 for file_name in sibling_result.get("files", []):
-                                    full_file_path = f"{full_sibling_path}/{file_name}"
+                                    full_file_path = str(Path(full_sibling_path) / file_name).replace('\\', '/')
                                     available_files.append(full_file_path)
                             except:
                                 pass  # Ignore errors accessing sibling directories
@@ -593,11 +593,9 @@ Respond ONLY in JSON format:
                 
                 print(f"  [PATH_MANAGER] Resolved {target_type}: '{original_path}' -> '{target_path}'")
                 
-                # Assign priority directly based on LLM selection
-                priority_values = {"high": 90, "medium": 70, "low": 50}
-                base_priority = priority_values.get(priority_level, 70)
-                # Add a small boost for LLM-selected paths
-                priority = min(base_priority + 5, 100)
+                # Assign priority directly based on LLM selection - unified mapping
+                from ..core.task import PRIORITY_MAPPING
+                priority = PRIORITY_MAPPING.get(priority_level, PRIORITY_MAPPING["default"])
                 
                 # Create appropriate task
                 if target_type == "file":
@@ -648,26 +646,35 @@ Respond ONLY in JSON format:
                 target_path = target_info.get("path", "")
                 original_path = target_info.get("original_path", target_path)
                 target_type = target_info.get("type", "file")
+                priority_str = target_info.get("priority", "medium")  # Get LLM-generated priority
                 reason = target_info.get("reason", "content-based follow-up")
                 
-                print(f"  [CONTENT_FOLLOW_UP] Resolved {target_type}: '{original_path}' -> '{target_path}'")
+                # Convert LLM priority to numeric value
+                from ..core.task import PRIORITY_MAPPING
+                if isinstance(priority_str, str):
+                    priority = PRIORITY_MAPPING.get(priority_str, PRIORITY_MAPPING["default"])
+                else:
+                    priority = int(priority_str) if isinstance(priority_str, (int, float)) else PRIORITY_MAPPING["default"]
                 
-                # Create task with resolved path
+                print(f"  [CONTENT_FOLLOW_UP] Resolved {target_type}: '{original_path}' -> '{target_path}' (LLM priority: {priority_str} -> {priority})")
+                
+                # Create task with LLM-determined priority
                 if target_type == "file":
-                    task = Task(TaskType.READ, target_path, priority=87)
+                    task = Task(TaskType.READ, target_path, priority=priority)
                     task_queue.add_task(task)
-                    print(f"  [CONTENT_FOLLOW_UP] Added READ task: {target_path}")
+                    print(f"  [CONTENT_FOLLOW_UP] Added READ task: {target_path} (priority: {priority})")
                     result["tasks_added"] += 1
                     result["decision_details"].append({
                         "type": "file",
                         "path": target_path,
                         "original_path": original_path,
-                        "reason": reason
+                        "reason": reason,
+                        "llm_priority": priority_str
                     })
                 elif target_type == "directory":
-                    task = Task(TaskType.EXPLORE, target_path, priority=82)
+                    task = Task(TaskType.EXPLORE, target_path, priority=priority)
                     task_queue.add_task(task)
-                    print(f"  [CONTENT_FOLLOW_UP] Added EXPLORE task: {target_path}")
+                    print(f"  [CONTENT_FOLLOW_UP] Added EXPLORE task: {target_path} (priority: {priority})")
                     result["tasks_added"] += 1
                     result["decision_details"].append({
                         "type": "directory",
@@ -676,28 +683,9 @@ Respond ONLY in JSON format:
                         "reason": reason
                     })
         
-        # Legacy support for simple explore_dirs list - also use path manager
-        explore_dirs = decisions.get("explore_dirs", [])
-        if explore_dirs:
-            # Convert to target format and resolve
-            legacy_targets = [{"path": dir_name, "type": "directory"} for dir_name in explore_dirs]
-            resolved_legacy = self.path_manager.resolve_content_follow_up_paths(legacy_targets, current_file_path)
-            
-            for target_info in resolved_legacy:
-                dir_path = target_info.get("path", "")
-                original_path = target_info.get("original_path", dir_path)
-                
-                task = Task(TaskType.EXPLORE, dir_path, priority=85)  # High priority
-                task_queue.add_task(task)
-                result["tasks_added"] += 1
-                result["decision_details"].append({
-                    "type": "explore",
-                    "path": dir_path,
-                    "original_path": original_path,
-                    "reason": "Content analysis - related directory"
-                })
+        # Note: Legacy explore_dirs format removed - all decisions now use follow_up_targets with LLM-generated priorities
         
-        result["decisions_made"] = len(follow_up_files) + len(explore_dirs)
+        result["decisions_made"] = len(follow_up_files)
         
         if result["decisions_made"] > 0:
             print(f"  [CONTENT-AUTONOMOUS] Added {result['tasks_added']} content follow-up tasks")
@@ -756,7 +744,7 @@ Respond ONLY in JSON format:
                             for subdir in subdirs:
                                 if (not subdir.startswith('.') and
                                         subdir not in ['node_modules', '__pycache__', '.git', 'build', 'dist']):
-                                    subdir_path = f"{explored_dir.rstrip('/')}/{subdir}"
+                                    subdir_path = str(Path(explored_dir) / subdir).replace('\\', '/')
                                     if not context.is_directory_explored(subdir_path):
                                         unexplored_subdirs.append(subdir_path)
                     except:
@@ -846,13 +834,9 @@ Respond ONLY in JSON format:
                     print(f"    [SKIP] {validation_reason}: {target}")
                     continue
                 
-                # 使用与LLM priority assessment相同的逻辑
-                if priority_str == "high":
-                    priority = 95  # Very high priority
-                elif priority_str == "medium":
-                    priority = 80  # High priority  
-                else:
-                    priority = 60  # Low priority
+                # Unified priority mapping across all components
+                from ..core.task import PRIORITY_MAPPING
+                priority = PRIORITY_MAPPING.get(priority_str, PRIORITY_MAPPING["default"])
                 
                 # Additional context validation for exploration
                 if action == "explore_directory":

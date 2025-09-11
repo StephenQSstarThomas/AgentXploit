@@ -8,6 +8,16 @@ from typing import Any, Dict, Optional
 from dataclasses import dataclass
 
 
+# Unified priority mapping for all components
+PRIORITY_MAPPING = {
+    "critical": 99,  # Critical/urgent tasks
+    "high": 95,      # High priority LLM decisions
+    "medium": 80,    # Medium priority LLM decisions  
+    "low": 60,       # Low priority LLM decisions
+    "default": 70    # Default when priority not specified
+}
+
+
 class TaskType(Enum):
     """Task type enumeration"""
     EXPLORE = "explore"  # Directory exploration

@@ -25,6 +25,7 @@ Initial files: {initial_files[:10] if initial_files else 'Not yet explored'}
 
 Generate a specific analysis focus for finding agent tool implementations and dataflow vulnerabilities.
 The focus should be concise (max 5 words) and specific to likely tool/dataflow patterns.
+Focus on efficiency - target areas for tool/dataflow discovery.
 
 Examples:
 - "LLM tool execution flows"
@@ -79,23 +80,31 @@ Respond with ONLY the focus phrase, nothing else.
         context = f"""
 Current focus: "{self.current_focus}"
 
-Recent discoveries:
-- Tool patterns found: {', '.join(tool_patterns[:5]) if tool_patterns else 'None yet'}
-- Dataflow patterns: {', '.join(dataflow_patterns[:5]) if dataflow_patterns else 'None yet'}
-- High-risk areas: {', '.join(high_risk_areas[:3]) if high_risk_areas else 'None yet'}
-- Recent findings: {len(recent_findings)} findings
+DISCOVERY ANALYSIS:
+- Tool patterns found: {len(tool_patterns)} total
+  {chr(10).join([f"  • {p}" for p in tool_patterns[:3]]) if tool_patterns else "  • No tool patterns discovered yet"}
+- Dataflow patterns: {len(dataflow_patterns)} total  
+  {chr(10).join([f"  • {p}" for p in dataflow_patterns[:3]]) if dataflow_patterns else "  • No dataflow patterns discovered yet"}
+- High-risk areas: {', '.join(high_risk_areas[:3]) if high_risk_areas else 'None identified'}
+- Recent findings: {len(recent_findings)} security findings
 
-Based on these discoveries, should we refine the analysis focus?
-If yes, generate a NEW specific focus (max 5 words) that targets the most promising unexplored areas.
-If no significant patterns found yet, keep current focus.
+FOCUS ADAPTATION DECISION:
+Based on these concrete discoveries, should we adapt the analysis focus to target areas most likely to reveal MORE dataflow patterns and tool implementations?
 
-CORE REQUIREMENT: Focus must target agent tool implementations and dataflow vulnerabilities.
+CRITICAL: If NO dataflow patterns have been found yet, we need to shift focus to areas more likely to contain:
+- Data processing pipelines
+- External API integrations  
+- File I/O operations
+- User input handlers
+- Tool execution frameworks
+
+If dataflow patterns ARE being found, focus on expanding that discovery area.
 
 Respond in JSON:
 {{
     "should_update": true/false,
     "new_focus": "specific focus phrase",
-    "reason": "why this focus based on discoveries"
+    "reason": "why this focus will reveal more dataflow patterns"
 }}
 """
         
@@ -146,18 +155,30 @@ Respond in JSON:
         
         # Extract patterns from security findings
         for finding in security_findings:
-            # Look for tool-related findings
-            if any(keyword in str(finding).lower() for keyword in ['tool', 'executor', 'handler', 'action', 'command']):
-                pattern = finding.get('file_path', '') + ": " + finding.get('finding_type', '')
+            # Look for agent_analysis section which contains dataflow info
+            agent_analysis = finding.get('agent_analysis', {})
+            
+            # Extract identified tools
+            identified_tools = agent_analysis.get('agent_tools', [])
+            for tool in identified_tools:
+                tool_name = tool.get('tool_name', 'unknown')
+                tool_type = tool.get('tool_type', 'unknown')
+                file_path = finding.get('file_path', '')
+                pattern = f"{file_path}: {tool_name} ({tool_type})"
                 discoveries['tool_patterns'].append(pattern)
             
-            # Look for dataflow findings  
-            if any(keyword in str(finding).lower() for keyword in ['flow', 'stream', 'pipeline', 'input', 'output']):
-                pattern = finding.get('file_path', '') + ": " + finding.get('finding_type', '')
+            # Extract dataflow patterns
+            dataflow_patterns = agent_analysis.get('dataflow_patterns', [])
+            for flow in dataflow_patterns:
+                flow_desc = flow.get('description', 'unknown flow')
+                data_path = flow.get('data_path', 'unknown path')
+                file_path = finding.get('file_path', '')
+                pattern = f"{file_path}: {flow_desc} - {data_path}"
                 discoveries['dataflow_patterns'].append(pattern)
                 
             # Track high-risk areas
-            if finding.get('severity') in ['high', 'critical']:
+            risk_level = finding.get('risk_assessment', {}).get('overall_risk', '').lower()
+            if risk_level in ['high', 'medium']:
                 discoveries['high_risk_areas'].append(finding.get('file_path', ''))
         
         # Remove duplicates
