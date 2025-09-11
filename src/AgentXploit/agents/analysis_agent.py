@@ -1,5 +1,4 @@
 import json
-import os
 import re
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -25,7 +24,8 @@ from ..tools.planning.context_tools import initialize_analysis_context
 from ..tools.planning.decision_engine import DecisionEngine
 from .exploration_strategies import ExplorationStrategies
 from .focus_tracker import FocusTracker, AnalysisFocus
-from .fallback_strategies import FallbackAnalysisStrategies
+from .dynamic_focus_manager import DynamicFocusManager
+# from .fallback_strategies import FallbackAnalysisStrategies  # DISABLED: Using only LLM-driven decisions
 
 
 # Import LLM client from core module
@@ -75,10 +75,15 @@ class AnalysisAgent:
         # Initialize focus tracker for deep investigation
         self.focus_tracker = FocusTracker()
         
+        # Initialize dynamic focus manager for LLM-driven focus generation
+        self.dynamic_focus = DynamicFocusManager()
+        
         # Initialize fallback strategies for comprehensive analysis
-        self.fallback_strategies = FallbackAnalysisStrategies(
-            self.context_manager, self.task_queue, self.context, self.tools
-        )
+        # DISABLED: Using only LLM-driven decisions for true autonomous exploration
+        # self.fallback_strategies = FallbackAnalysisStrategies(
+        #     self.context_manager, self.task_queue, self.context, self.tools
+        # )
+        self.fallback_strategies = None
 
         # Initialize security analyzer (late import to avoid circular dependency)
         from ..tools.analyzers.security_analyzer import SecurityAnalyzer
@@ -88,7 +93,7 @@ class AnalysisAgent:
         from ..tools.code_analysis.llm_decider import LLMHelper
         self.llm = LLMHelper()
         
-    def analyze(self, max_steps: Optional[int] = None, save_results: bool = True, focus: str = "security") -> Dict[str, Any]:
+    def analyze(self, max_steps: Optional[int] = None, save_results: bool = True, focus: str = None) -> Dict[str, Any]:
         """
         Autonomous agent-driven analysis using discoveries and context for intelligent decision making
         """
@@ -99,8 +104,26 @@ class AnalysisAgent:
         # Initialize analysis state
         analysis_state = self._initialize_analysis_state()
         
-        print("Starting autonomous analysis...")
-        print("Agent will use discoveries and context to determine next steps intelligently")
+        # Generate initial dynamic focus if not provided
+        if focus is None:
+            # Get initial file list for context
+            initial_files = []
+            try:
+                root_result = self.tools.list_directory(".")
+                initial_files = root_result.get("files", [])
+            except:
+                pass
+            
+            focus = self.dynamic_focus.generate_initial_focus(
+                repo_name=self.repo_path.name,
+                initial_files=initial_files
+            )
+            print(f"Generated initial focus: '{focus}'")
+        else:
+            self.dynamic_focus.current_focus = focus
+            
+        print("Starting autonomous tool & dataflow analysis...")
+        print(f"Dynamic focus: '{focus}' - Agent will adapt based on discoveries")
         
         # Main analysis loop
         return self._run_analysis_loop(analysis_state, max_steps, save_results, focus)
@@ -122,9 +145,8 @@ class AnalysisAgent:
                 self.tools, self.context, self.context_manager, self.task_queue
             )
             
-        self.fallback_strategies = FallbackAnalysisStrategies(
-            self.context_manager, self.task_queue, self.context, self.tools
-        )
+        # DISABLED: Using only LLM-driven decisions
+        self.fallback_strategies = None
 
     def _initialize_analysis_state(self) -> Dict:
         """Initialize analysis state variables"""
@@ -143,8 +165,20 @@ class AnalysisAgent:
     def _run_analysis_loop(self, analysis_state: Dict, max_steps: int, save_results: bool, focus: str) -> Dict[str, Any]:
         """Main analysis loop with CORE INNOVATION: LLM-driven autonomous decision making and reassessment"""
         consecutive_empty_queue_count = 0  # Track consecutive empty queue attempts
+        current_focus = focus  # Track current dynamic focus
         
         while analysis_state['step'] < max_steps:
+            # Update dynamic focus based on discoveries every 10 steps
+            if analysis_state['step'] > 0 and analysis_state['step'] % 10 == 0:
+                discoveries = self.dynamic_focus.extract_discoveries_from_context(
+                    self.context_manager,
+                    analysis_state.get('security_findings', [])
+                )
+                new_focus = self.dynamic_focus.update_focus_from_discoveries(discoveries)
+                if new_focus != current_focus:
+                    current_focus = new_focus
+                    print(f"\n[DYNAMIC FOCUS] Updated focus: '{current_focus}'")
+            
             # CORE INNOVATION: LLM-driven intelligent reassessment decision
             should_reassess, reassess_reason = self._llm_should_reassess_decision(
                 analysis_state['step'], analysis_state['last_reassessment_step']
@@ -225,12 +259,16 @@ class AnalysisAgent:
             self.execution_logger.log_execution(task, result, analysis_state['step'] + 1)
             analysis_state['step'] += 1
 
-        # Final autonomous summary
-        print("\nAnalysis Complete - Autonomous Summary:")
+        # Final autonomous summary with dataflow focus
+        dataflow_summary = self.execution_logger.get_dataflow_summary()
+        print("\nAnalysis Complete - Tool & Dataflow Summary:")
         print(f"  Steps completed: {analysis_state['step']}")
         print(f"  Directories explored: {len(self.context.get_explored_directories())}")
         print(f"  Files analyzed: {len(self.context.get_analyzed_files())}")
-        print(f"  Security findings: {sum(len(sr.get('findings', [])) for sr in analysis_state['security_findings'])})")
+        print(f"  Files with dataflow patterns: {dataflow_summary.get('files_with_dataflows', 0)}")
+        print(f"  Total dataflow patterns found: {dataflow_summary.get('total_dataflow_patterns', 0)}")
+        print(f"  High-risk dataflows: {dataflow_summary.get('high_risk_flows_count', 0)}")
+        print(f"  Unique tools discovered: {dataflow_summary.get('tools_count', 0)}")
         
         # Get execution statistics and trace logs
         execution_stats = self.execution_logger.get_summary()
@@ -262,7 +300,9 @@ class AnalysisAgent:
                 "repository_path": str(self.repo_path),
                 "analysis_timestamp": datetime.now().isoformat(),
                 "analyzer_version": "4.0.0-autonomous",
-                "focus": focus,
+                "initial_focus": focus,
+                "final_focus": self.dynamic_focus.current_focus,
+                "focus_history": self.dynamic_focus.focus_history,
                 "analysis_mode": "autonomous_agent_driven"
             },
 
@@ -283,6 +323,13 @@ class AnalysisAgent:
                 "total_files": len(self.context.get_analyzed_files())
             },
 
+            "tool_dataflow_analysis": {
+                "summary": dataflow_summary,
+                "high_risk_dataflow_files": [log.target for log in self.execution_logger.get_high_risk_dataflow_logs()],
+                "tool_chain_completeness": self._assess_tool_chain_completeness(dataflow_summary),
+                "dataflow_coverage": self._assess_dataflow_coverage(dataflow_summary, len(self.context.get_analyzed_files()))
+            },
+
             "security_analysis": {
                 "summary": {
                     "total_files_analyzed": len(unique_security_findings),
@@ -291,7 +338,9 @@ class AnalysisAgent:
                     "medium_risk_files": medium_risk_files,
                     "total_findings": sum(len(result.get("findings", [])) for result in unique_security_findings.values())
                 },
-                "detailed_results": list(unique_security_findings.values())
+                "detailed_results": list(unique_security_findings.values()),
+                # Add injection point analysis for high/medium risk files
+                "injection_point_analysis": self._perform_injection_point_analysis(list(unique_security_findings.values()), dataflow_summary)
             }
         }
         
@@ -337,7 +386,7 @@ class AnalysisAgent:
             
             # If we have discoverable targets, ask LLM to prioritize them
             if all_files or all_dirs:
-                return self._llm_prioritize_targets(all_files[:20], all_dirs[:10])
+                return self._llm_prioritize_targets(all_files, all_dirs)
             else:
                 print("  No more discoverable targets in repository")
                 return 0
@@ -365,8 +414,8 @@ RECENTLY ANALYZED FILES:
 {chr(10).join([f"- {f}" for f in analyzed_files[-10:]])}
 
 AVAILABLE TARGETS:
-Files to analyze: {available_files[:15]}
-Directories to explore: {available_dirs[:10]}
+Files to analyze: {available_files}
+Directories to explore: {available_dirs}
 """
 
             prompt = f"""You are continuing a security analysis. Select the MOST VALUABLE targets to analyze next.
@@ -398,7 +447,7 @@ Respond in JSON format:
             
             decision_text = LLMClient.call_llm(
                 model=model, messages=messages, max_tokens=800,
-                temperature=0.2, timeout=30, max_retries=2
+                temperature=0.5, timeout=30, max_retries=2
             )
             
             if decision_text:
@@ -466,14 +515,14 @@ Respond in JSON format:
                 # Pass current directory context for proper path construction
                 current_explored_path = task.target
                 print(f"  [PATH_DEBUG] Current explored_path: {current_explored_path}")
-                print(f"  [PATH_DEBUG] Available files: {files[:10]} ({'...' if len(files) > 10 else f'total: {len(files)}'})")
-                print(f"  [PATH_DEBUG] Available dirs: {dirs[:10]} ({'...' if len(dirs) > 10 else f'total: {len(dirs)}'})")
+                print(f"  [PATH_DEBUG] Available files (total: {len(files)}): {files}")
+                print(f"  [PATH_DEBUG] Available dirs (total: {len(dirs)}): {dirs}")
                 print(f"  [PATH_DEBUG] Full dirs list: {dirs}")
                 
                 self.decision_engine.make_autonomous_decision(
                     "exploration", self.context_manager, self.task_queue, 
                     self.context.get_analyzed_files(), self.context.get_explored_directories(),
-                    explored_path=current_explored_path, files=files, dirs=dirs, focus=focus
+                    explored_path=current_explored_path, files=files, dirs=dirs, focus=self.dynamic_focus.current_focus
                 )
                         
         elif task.type == TaskType.READ:
@@ -511,7 +560,7 @@ Respond in JSON format:
                 self.decision_engine.make_autonomous_decision(
                     "content", self.context_manager, self.task_queue,
                     self.context.get_analyzed_files(), self.context.get_explored_directories(),
-                    file_path=task.target, content=file_content, security_result=security_result, focus=focus
+                    file_path=task.target, content=file_content, security_result=security_result, focus=self.dynamic_focus.current_focus
                 )
 
     def _assess_file_priorities_with_llm(self, files: List[str], explored_path: str) -> None:
@@ -531,13 +580,14 @@ Respond in JSON format:
             context=context, 
             files=files,
             security_findings=security_findings,
-            workflow_analysis=workflow_analysis
+            workflow_analysis=workflow_analysis,
+            focus=self.dynamic_focus.current_focus
         )
 
         # Use LLM to get priority assessment
         model = LLMClient.get_model()
         messages = [
-            {"role": "system", "content": "You are an expert security analyst selecting the most valuable files for in-depth security analysis."},
+            {"role": "system", "content": "You are an expert code analyst focused on finding agent tool implementations and dataflow patterns. Make autonomous decisions about file priorities based on the current analysis context and focus. Your goal is to identify files that contain actual tool implementations, data processing logic, or agent workflow management code."},
             {"role": "user", "content": priority_prompt}
         ]
 
@@ -545,7 +595,7 @@ Respond in JSON format:
             model=model,
             messages=messages,
             max_tokens=800,
-            temperature=0.3,
+            temperature=0.5,
             timeout=20,
             max_retries=2
         )
@@ -560,7 +610,7 @@ Respond in JSON format:
                     priorities = json.loads(json_text)
 
                     # Check if all files are low priority
-                    priority_files = priorities.get("priority_files", [])[:5]  # Limit to 5 files
+                    priority_files = priorities.get("priority_files", [])  # No limit - get all files
                     high_medium_files = [f for f in priority_files if f.get("priority", "low") in ["high", "medium"]]
                     
                     if not high_medium_files:
@@ -711,7 +761,7 @@ Respond in JSON format:
                 high_risk_files = analyzed_files[-10:]  # Last 10 analyzed files
 
             # Limit to 5 files for LLM analysis
-            analysis_files = high_risk_files[:5]
+            analysis_files = high_risk_files  # Analyze all high risk files
 
             print(f"  [SECURITY] Analyzing {len(analysis_files)} files for targeted security issues")
 
@@ -753,7 +803,7 @@ Respond in JSON format:
             model=model,
             messages=messages,
             max_tokens=1200,
-            temperature=0.2,
+            temperature=0.5,
             timeout=30,
             max_retries=2
         )
@@ -809,7 +859,7 @@ Respond in JSON format:
             decision_result = self.decision_engine.make_autonomous_decision(
                 decision_type, self.context_manager, self.task_queue, 
                 self.context.get_analyzed_files(), self.context.get_explored_directories(),
-                focus="security", **kwargs
+                focus=self.dynamic_focus.current_focus, **kwargs
             )
             
             # Track decision results (core innovation tracking)
@@ -838,79 +888,57 @@ Respond in JSON format:
 
     # DEPRECATED: Build decision prompt functions moved to DecisionEngine
 
-    def _generate_related_files_recommendations(self, file_path: str, content: str) -> List[str]:
-        """Generate related files recommendations for LLM decision making"""
-        recommendations = []
+    # REMOVED: _generate_related_files_recommendations - was rule-based
+    # All file recommendations are now generated by LLM through DecisionEngine
 
+    def _assess_tool_chain_completeness(self, dataflow_summary: Dict) -> str:
+        """Assess how complete the tool chain analysis is"""
+        total_tools = dataflow_summary.get('tools_count', 0)
+        total_flows = dataflow_summary.get('total_dataflow_patterns', 0)
+        
+        if total_tools == 0 and total_flows == 0:
+            return "No tool chains or dataflow patterns identified"
+        elif total_tools > 0 and total_flows == 0:
+            return f"Tools identified ({total_tools}) but dataflow patterns incomplete"
+        elif total_tools == 0 and total_flows > 0:
+            return f"Dataflow patterns found ({total_flows}) but tool definitions missing"
+        else:
+            completeness_ratio = min(total_flows / max(total_tools, 1), 1.0)
+            if completeness_ratio > 0.8:
+                return f"Tool chain analysis appears complete - {total_tools} tools, {total_flows} flows"
+            elif completeness_ratio > 0.5:
+                return f"Tool chain analysis partially complete - {total_tools} tools, {total_flows} flows"
+            else:
+                return f"Tool chain analysis incomplete - missing flow analysis for many tools"
+
+    def _assess_dataflow_coverage(self, dataflow_summary: Dict, total_files: int) -> str:
+        """Assess dataflow analysis coverage across analyzed files"""
+        files_with_flows = dataflow_summary.get('files_with_dataflows', 0)
+        if total_files == 0:
+            return "No files analyzed"
+        
+        coverage_ratio = files_with_flows / total_files
+        if coverage_ratio > 0.3:
+            return f"Good dataflow coverage - {files_with_flows}/{total_files} files contain dataflow patterns"
+        elif coverage_ratio > 0.1:
+            return f"Moderate dataflow coverage - {files_with_flows}/{total_files} files contain dataflow patterns"
+        else:
+            return f"Limited dataflow coverage - only {files_with_flows}/{total_files} files contain dataflow patterns"
+
+    def _perform_injection_point_analysis(self, security_results: List[Dict], dataflow_summary: Dict) -> Dict:
+        """Perform specialized injection point analysis for high/medium risk files"""
         try:
-            # Get current directory and file info
-            current_dir = str(Path(file_path).parent)
-            file_extension = Path(file_path).suffix.lower()
-
-            # 1. Extract imports and dependencies
-            if file_extension in ['.py', '.js', '.ts', '.java']:
-                import_related = self._find_related_files_from_content(content)
-                recommendations.extend(import_related)
-
-            # 2. Find configuration files that might be referenced
-            config_related = self._find_referenced_files_from_config(content)
-            recommendations.extend(config_related)
-
-            # 3. Find related files in the same directory
-            try:
-                dir_path = self.repo_path / current_dir
-                if dir_path.exists():
-                    for item in dir_path.iterdir():
-                        if item.is_file():
-                            item_name = item.name
-                            item_path = f"{current_dir}/{item_name}" if current_dir != "." else item_name
-
-                            # Skip already analyzed files
-                            if self.context.is_file_analyzed(item_path):
-                                continue
-
-                            # Recommend related files based on patterns
-                            if any(pattern in item_name.lower() for pattern in [
-                                'config', 'settings', 'auth', 'security', 'database', 'db',
-                                'model', 'schema', 'api', 'endpoint', 'route', 'controller'
-                            ]):
-                                recommendations.append(item_path)
-
-                            # Recommend files with similar names or same base name
-                            current_base = Path(file_path).stem
-                            if Path(item_name).stem == current_base and item_name != Path(file_path).name:
-                                recommendations.append(item_path)
-
-            except Exception as e:
-                pass  # Continue silently on directory access errors
-
-            # 4. Find potential entry points or main files
-            if current_dir != ".":
-                try:
-                    # Look for main files in the same directory
-                    for item in (self.repo_path / current_dir).iterdir():
-                        if item.is_file():
-                            item_name = item.name.lower()
-                            if any(main_file in item_name for main_file in [
-                                'main.py', 'app.py', 'server.py', '__init__.py',
-                                'index.js', 'app.js', 'server.js'
-                            ]):
-                                item_path = f"{current_dir}/{item.name}" if current_dir != "." else item.name
-                                if not self.context.is_file_analyzed(item_path):
-                                    recommendations.append(item_path)
-                except Exception as e:
-                    pass  # Continue silently on file access errors
-
-            # Remove duplicates and limit results
-            recommendations = list(dict.fromkeys(recommendations))  # Remove duplicates while preserving order
-            recommendations = [rec for rec in recommendations if rec and not self.context.is_file_analyzed(rec)]
-            recommendations = recommendations[:10]  # Limit to 10 recommendations
-
+            # Use the security analyzer's new injection point analysis
+            injection_analysis = self.security_analyzer.analyze_injection_points_for_high_risk_files(
+                security_results, dataflow_summary
+            )
+            return injection_analysis
         except Exception as e:
-            print(f"  [ERROR] Failed to generate related files recommendations: {e}")
-            recommendations = []
-
-        return recommendations
+            return {
+                "analysis_performed": False,
+                "error": f"Injection point analysis failed: {str(e)}",
+                "summary": "Failed to perform specialized injection point analysis"
+            }
 
     def _build_history_context(self) -> str:
         """Build comprehensive analysis history context for LLM to prevent duplicates and invalid paths"""
@@ -988,20 +1016,14 @@ CURRENT EXPLORATION CONTEXT:
 DISCOVERED FILES:
 """
 
-        for file in files[:20]:  # Limit for context
+        for file in files:  # Show all files for context
             file_path = f"{explored_path.rstrip('/')}/{file}"
             context += f"- {file_path}\n"
 
-        if len(files) > 20:
-            context += f"- ... and {len(files) - 20} more files\n"
-
         context += "\nDISCOVERED DIRECTORIES:\n"
-        for dir in dirs[:10]:  # Limit for context
+        for dir in dirs:  # Show all directories for context
             dir_path = f"{explored_path.rstrip('/')}/{dir}"
             context += f"- {dir_path}\n"
-
-        if len(dirs) > 10:
-            context += f"- ... and {len(dirs) - 10} more directories\n"
 
         return context
 
@@ -1110,7 +1132,7 @@ DISCOVERED FILES:
 
             # Use decision engine for autonomous context reassessment (core innovation)
             self.decision_engine.autonomous_context_reassessment(
-                self.context_manager, self.task_queue, self.context, self.tools
+                self.context_manager, self.task_queue, self.context, self.tools, self.dynamic_focus.current_focus
             )
             
             print("  [AUTONOMOUS_REASSESSMENT] Context reassessment completed")
@@ -1224,7 +1246,7 @@ DISCOVERED FILES:
                 if match.endswith(('.js', '.ts', '.json')):
                     related_files.append(match)
 
-        return related_files[:5]  # Limit results
+        return related_files  # Return all related files
 
     def _find_referenced_files_from_config(self, content: str) -> List[str]:
         """Find files referenced in configuration files"""
@@ -1254,7 +1276,7 @@ DISCOVERED FILES:
                         len(match) >= 5):  # Reasonable minimum length for a filename
                         valid_files.append(match)
 
-                referenced_files.extend(valid_files[:5])
+                referenced_files.extend(valid_files)
         except:
             # Fallback with even more restrictive pattern
             file_matches = re.findall(r'[\'"]([a-zA-Z0-9_\-]+\.[a-zA-Z]{2,4})[\'"]', content)
@@ -1264,9 +1286,9 @@ DISCOVERED FILES:
                 if len(match) >= 5 and not match.replace('.', '').replace('_', '').replace('-', '').isdigit():
                     valid_files.append(match)
 
-            referenced_files.extend(valid_files[:5])
+            referenced_files.extend(valid_files)
 
-        return referenced_files[:3]
+        return referenced_files
 
     def _extract_file_paths_from_dict(self, data: Dict, file_list: List[str]) -> None:
         """Recursively extract file paths from nested dictionary"""
@@ -1635,7 +1657,7 @@ SECURITY ANALYSIS STATE:
                 model=model,
                 messages=messages,
                 max_tokens=500,
-                temperature=0.2,
+                temperature=0.4,
                 timeout=25,
                 max_retries=2
             )
@@ -1660,13 +1682,9 @@ SECURITY ANALYSIS STATE:
                     return should_reassess, reasoning
         
         except Exception as e:
-            pass  # LLM decision failed, use fallback logic
-        
-        # Minimal fallback if LLM fails
-        fallback_should_reassess = (current_step - last_reassess_step >= 6)
-        fallback_reason = "LLM decision failed - minimal fallback applied"
-        
-        return fallback_should_reassess, fallback_reason
+            # LLM decision failed, return minimal defaults
+            print(f"  [WARNING] LLM reassessment decision failed: {e}")
+            return False, "LLM decision failed - continuing with current strategy"
     
     def _has_meaningful_discoveries(self) -> bool:
         """Check if we have meaningful discoveries that warrant reassessment"""
@@ -1719,7 +1737,7 @@ SECURITY ANALYSIS STATE:
 
             decision_text = LLMClient.call_llm(
                 model=model, messages=messages, max_tokens=1000,
-                temperature=0.2, timeout=25, max_retries=2
+                temperature=0.4, timeout=25, max_retries=2
             )
 
             if decision_text:
@@ -2066,9 +2084,18 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
 
 
 
-def perform_repository_analysis(repo_path: str, max_steps: Optional[int] = None, save_results: bool = True, focus: str = "security") -> Dict[str, Any]:
+def perform_repository_analysis(repo_path: str, max_steps: Optional[int] = None, save_results: bool = True, focus: str = None) -> Dict[str, Any]:
     """
     Function tool for performing comprehensive repository analysis
+    
+    Args:
+        repo_path: Path to repository to analyze
+        max_steps: Maximum analysis steps (default from settings)
+        save_results: Whether to save results to file
+        focus: Analysis focus (None for dynamic LLM-generated focus)
+    
+    Returns:
+        Comprehensive analysis results with dynamic focus adaptation
     """
     analyzer = AnalysisAgent(repo_path)
     return analyzer.analyze(max_steps=max_steps, save_results=save_results, focus=focus)

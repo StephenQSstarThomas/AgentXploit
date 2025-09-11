@@ -485,7 +485,7 @@ def analyze_repository_and_inject(
         static_analysis = analyzer.analyze(
             max_steps=max_files_to_read,
             save_results=True,
-            focus="security"
+            focus=None  # Let LLM generate dynamic focus
         )
         
         if "error" in static_analysis:
@@ -580,7 +580,7 @@ def static_analyze_repository(
             static_analysis = analyzer.analyze(
                 max_steps=max_files_to_read,
                 save_results=True,
-                focus="security"
+                focus=None  # Let LLM generate dynamic focus
             )
         else:
             # Use simple batch analysis

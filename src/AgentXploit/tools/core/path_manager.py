@@ -146,7 +146,7 @@ class PathManager:
         Resolve target path with proper context handling
         
         Args:
-            target_path: Relative target path (e.g., "bedrock.py", "subfolder")
+            target_path: Target path (relative or from workspace root)
             target_type: Type of target ("file" or "directory")  
             context_path: Optional context path (file path or explored directory)
             
@@ -154,19 +154,40 @@ class PathManager:
             Tuple of (resolved_relative_path, is_valid, reason)
         """
         try:
-            # Determine context directory
-            context_dir = self._determine_context_directory(context_path)
+            # Check if target_path looks like a workspace-relative path
+            # (contains multiple path components and starts with a known directory)
+            target_parts = Path(target_path).parts
             
-            # Resolve the target relative to context
-            if context_dir == ".":
-                # At workspace root
+            if len(target_parts) > 1 and not target_path.startswith(('.', '..')):
+                # This looks like a workspace-relative path (e.g., "openhands/cli/utils.py")
+                # Try resolving directly from workspace root first
                 resolved_relative = self._normalize_relative_path(target_path)
+                absolute_path = self.get_absolute_path(resolved_relative)
+                
+                if absolute_path.exists():
+                    # Direct workspace resolution worked
+                    logger.debug(f"[PATH_MANAGER] Workspace-relative path resolved: '{target_path}' -> '{resolved_relative}'")
+                else:
+                    # Fall back to context-relative resolution
+                    context_dir = self._determine_context_directory(context_path)
+                    if context_dir != ".":
+                        combined = f"{context_dir}/{target_path}"
+                        resolved_relative = self._normalize_relative_path(combined)
+                        logger.debug(f"[PATH_MANAGER] Context-relative fallback: '{target_path}' in '{context_dir}' -> '{resolved_relative}'")
             else:
-                # In a subdirectory, combine paths
-                combined = f"{context_dir}/{target_path}"
-                resolved_relative = self._normalize_relative_path(combined)
+                # This is a simple relative path (e.g., "utils.py", "../config.py")
+                # Use context-based resolution
+                context_dir = self._determine_context_directory(context_path)
+                
+                if context_dir == ".":
+                    # At workspace root
+                    resolved_relative = self._normalize_relative_path(target_path)
+                else:
+                    # In a subdirectory, combine paths
+                    combined = f"{context_dir}/{target_path}"
+                    resolved_relative = self._normalize_relative_path(combined)
             
-            logger.debug(f"[PATH_MANAGER] Resolving '{target_path}' in context '{context_dir}' -> '{resolved_relative}'")
+            logger.debug(f"[PATH_MANAGER] Final resolution: '{target_path}' -> '{resolved_relative}'")
             
             # Validate the resolved path
             absolute_path = self.get_absolute_path(resolved_relative)

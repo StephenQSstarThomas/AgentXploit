@@ -35,23 +35,29 @@ class PromptManager:
             root_unexplored = root_unexplored or []
             exploration_context = exploration_context or "Exploration in progress"
 
-        return f"""FOCUS INSTRUCTIONS (READ CAREFULLY):
-- Goal: Analyze for **AGENT INJECTION vulnerabilities**.
-- STRICT RULE: You may ONLY select from the lists of AVAILABLE FILES and DIRECTORIES below.
-- Never assume or invent filenames or directories (e.g., do NOT propose 'main.py' unless it appears in the list).
-- Pick a maximum of 3 targets.
+        return f"""FOCUS: {focus.upper()} - Analyze AGENT TOOL IMPLEMENTATIONS and DATAFLOW patterns
+STRICT RULE: You MUST ONLY select from the AVAILABLE FILES and SUBDIRECTORIES lists below.
 
-SELECTION PRIORITY (apply only to the given lists):
-1. HIGH — Items most likely to contain LLM/agent logic, prompts, or tool execution:
-   - Files with relevant keywords (agent, llm, prompt, tool, executor, runtime, server, api, client, command, workflow, handler)
-   - Source code files (.py, .js, .ts)
-2. MEDIUM — Subdirectories likely to contain agent components (src/, core/, agents/, tools/, handlers/, api/, server/)
-3. LOW — Documentation and configs (*.md, LICENSE, config files)
+AGENT TOOL KEYWORDS TO PRIORITIZE:
+- agent, tool, action, executor, handler, processor, runner, client, api
+- controller, manager, wrapper, adapter, plugin, extension
+- command, operation, task, job, workflow, pipeline
 
-AVAILABLE FILES IN CURRENT DIRECTORY:
+DATAFLOW KEYWORDS TO PRIORITIZE:
+- stream, flow, pipe, channel, queue, buffer
+- input, output, parse, transform, validate, sanitize
+- request, response, send, receive, emit, listen
+- read, write, process, handle, execute
+
+AVOID THESE (unless they implement tools):
+- README.md, docs/, documentation/, examples/
+- tests/, test_, _test.py (unless testing tool implementations)
+- config files (unless they define tool configurations)
+
+AVAILABLE FILES IN CURRENT DIRECTORY (SELECT EXACT NAMES ONLY):
 {chr(10).join([f"- {f}" for f in files])}
 
-AVAILABLE SUBDIRECTORIES:
+AVAILABLE SUBDIRECTORIES (SELECT EXACT NAMES ONLY):
 {chr(10).join([f"- {d}" for d in dirs])}
 
 UNEXPLORED ROOT DIRECTORIES:
@@ -59,22 +65,27 @@ UNEXPLORED ROOT DIRECTORIES:
 
 {exploration_context}
 
-CONTEXT (for reference only, may be long):
+HISTORY CONTEXT(only for reference):
 {history_context}
 
-RESPONSE FORMAT (JSON only, strictly using names from the lists above):
+CRITICAL RULES:
+1. Copy-paste EXACT names from the lists above
+2. NEVER add '.py' to directory names
+3. If it's in SUBDIRECTORIES list, it's a directory, NOT a file
+4. Focus on AGENT TOOLS and DATAFLOW for {focus} analysis
+
+RESPONSE FORMAT (JSON only, using EXACT names from lists):
 {{
   "analysis_targets": [
     {{
       "type": "file|directory",
-      "path": "exact_name_from_lists_above",
+      "path": "EXACT_NAME_FROM_LISTS",
       "priority": "high|medium|low",
-      "reason": "why important for agent injection analysis"
+      "reason": "contains agent tool implementation|dataflow processing|external data handling"
     }}
   ],
-  "strategy_explanation": "focus on agent injection points"
-}}
-"""
+  "strategy_explanation": "focusing on agent tool implementations and dataflow patterns for {focus} analysis"
+}}"""
 
 
     @staticmethod
@@ -99,7 +110,7 @@ RESPONSE FORMAT (JSON only, strictly using names from the lists above):
                     imports_found.append(file_candidate)
     
             file_refs = re.findall(r'[\'"]([^\'\"]*\.(?:py|js|ts|json|toml|yaml|yml))[\'"]', content)
-            imports_found.extend(file_refs[:3])
+            imports_found.extend(file_refs)
     
         # Build analyzed files list from history
         analyzed_files_list = []
@@ -116,53 +127,66 @@ RESPONSE FORMAT (JSON only, strictly using names from the lists above):
                 elif line.strip() and not line.startswith('-') and in_section:
                     break
     
-        return f"""You are analyzing file content for agent injection vulnerabilities. 
-    Make follow-up decisions using STRICT selection rules.
-    
-    CURRENT FILE: {file_path}
-    SECURITY RISK: {security_result.get('risk_assessment', {}).get('overall_risk', 'UNKNOWN')}
-    
-    ALREADY ANALYZED FILES (DO NOT suggest these):
-    {chr(10).join([f"- {f}" for f in analyzed_files_list[-10:]])}
-    
-    IMPORT/REFERENCE HINTS (for prioritization only, do not invent new paths):
-    {chr(10).join([f"- {imp}" for imp in imports_found[:5]])}
-    
-    AVAILABLE FILES IN CURRENT DIRECTORY:
-    {chr(10).join([f"- {f}" for f in available_files[:20]])}
-    
-    AVAILABLE SUBDIRECTORIES:
-    {chr(10).join([f"- {d}" for d in available_dirs[:15]])}
-    
-    FOLLOW-UP STRATEGY:
-    1. If current file has HIGH/MEDIUM risk → prefer related files in the same directory (from AVAILABLE FILES).
-    2. If current file imports modules → check if those modules exist in AVAILABLE FILES or SUBDIRECTORIES before selecting.
-    3. If current file is agent/tool related → explore nearby handler/config files, but only if present in the AVAILABLE lists.
-    4. Avoid documentation (*.md, LICENSE, etc.).
-    5. Maximum 2 follow-up targets.
-    
-    STRICT RULES:
-    - DO NOT invent or assume paths. 
-    - Select ONLY from the AVAILABLE FILES and SUBDIRECTORIES above.
-    - Suggested targets must exactly match names from the lists.
-    
-    Respond in JSON format:
-    {{
-        "follow_up_targets": [
-            {{"path": "exact_match_from_available_lists", "type": "file|directory", "priority": 80, "reason": "why chosen"}},
-            {{"path": "exact_match_from_available_lists", "type": "file|directory", "priority": 70, "reason": "why chosen"}}
-        ],
-        "exploration_strategy": "focus on realistic, available files related to agent injection"
-    }}"""
+        return f"""FOCUS: {focus.upper()} - Analyzing file content for AGENT TOOL USE and DATAFLOW vulnerabilities
+Make follow-up decisions using STRICT selection rules based on the history context.
+
+CURRENT FILE: {file_path}
+SECURITY RISK: {security_result.get('risk_assessment', {}).get('overall_risk', 'UNKNOWN')}
+
+HISTORY CONTEXT:
+{history_context}
+
+ALREADY ANALYZED FILES (DO NOT suggest these):
+{chr(10).join([f"- {f}" for f in analyzed_files_list])}
+
+IMPORT/REFERENCE HINTS (for prioritization only, do not invent new paths):
+{chr(10).join([f"- {imp}" for imp in imports_found])}
+
+AVAILABLE FILES (YOU MUST SELECT FROM THIS LIST ONLY):
+{chr(10).join([f"- {f}" for f in available_files])}
+
+AVAILABLE DIRECTORIES (YOU MUST SELECT FROM THIS LIST ONLY):
+{chr(10).join([f"- {d}" for d in available_dirs])}
+
+CRITICAL WARNING: DO NOT CREATE FILE NAMES! DO NOT ADD '.py' TO DIRECTORY NAMES!
+If you see "serialization" in directories, it's a DIRECTORY, not "serialization.py"!
+
+AGENT TOOL & DATAFLOW FOCUS FOR {focus.upper()} ANALYSIS:
+1. PRIORITIZE files/dirs with AGENT TOOLS and DATAFLOW patterns
+2. PRIORITIZE dataflow patterns
+3. AVOID documentation unless they define tool interfaces
+4. AVOID generic files unless they process external data or implement tools
+
+FOLLOW-UP STRATEGY FOR {focus.upper()}:
+1. If current file contains tool definitions -> find files that USE these tools
+2. If current file has dataflow patterns -> trace the data path upstream/downstream
+3. If current file processes external input -> find validation/sanitization logic
+4. Focus on completing tool chains and dataflow analysis
+5. Maximum 2 follow-up targets
+
+ABSOLUTE RULES:
+- You MUST copy-paste EXACT names from AVAILABLE FILES or AVAILABLE DIRECTORIES
+- NEVER invent file names or add extensions to directory names
+- If something appears only in AVAILABLE DIRECTORIES, it's a directory, NOT a file
+
+Respond in JSON format:
+{{
+    "follow_up_targets": [
+        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": 80, "reason": "agent tool or dataflow related"}},
+        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": 70, "reason": "agent tool or dataflow related"}}
+    ],
+    "exploration_strategy": "focus on agent tools and dataflow patterns for {focus} analysis, not documentation"
+}}"""
 
 
     @staticmethod
     def get_context_reassessment_prompt(history_context: str, current_state: Dict,
                                       unexplored_root_dirs: List[str], unexplored_subdirs: List[str],
-                                      task_queue_size: int) -> str:
+                                      task_queue_size: int, focus: str = "security") -> str:
         """Improved context reassessment prompt"""
-        return f"""You are making strategic decisions about repository analysis continuation.
+        return f"""FOCUS: {focus.upper()} - Making strategic decisions about repository analysis continuation.
 
+HISTORY CONTEXT:
 {history_context}
 
 CURRENT STATE:
@@ -172,16 +196,17 @@ CURRENT STATE:
 - Task queue: {task_queue_size} tasks
 
 UNEXPLORED AREAS:
-Root directories: {unexplored_root_dirs[:8]}
-Subdirectories: {unexplored_subdirs[:8]}
+Root directories: {unexplored_root_dirs}
+Subdirectories: {unexplored_subdirs}
 
-STRATEGIC PRIORITIES:
-1. If high-risk files found → explore related directories first
-2. If no high-risk files → focus on core application directories
-3. Prioritize: src/, core/, agents/, tools/, handlers/, api/
-4. Avoid: docs/, examples/, tests/ unless they contain agent logic
+STRATEGIC PRIORITIES FOR {focus.upper()} ANALYSIS:
+1. If files with tool definitions found -> explore directories containing tool implementations or consumers
+2. If dataflow patterns identified -> prioritize directories that likely contain related data processing logic
+3. Focus on directories suggesting external interaction
+4. Prioritize directories that are likely to contain tool chains and dataflow patterns
+5. Avoid: documentation directories unless they contain tool configurations or data samples
 
-Select the MOST PROMISING unexplored area for agent injection analysis.
+Select the MOST PROMISING unexplored area for tool chain and dataflow analysis focused on {focus}.
 
 Respond in JSON format:
 {{
@@ -190,12 +215,12 @@ Respond in JSON format:
             "action": "explore_directory",
             "target": "exact_directory_from_unexplored_lists",
             "priority": "high",
-            "reason": "likely contains agent components",
-            "expected_value": "security"
+            "reason": "likely contains tool implementations or data processing logic for {focus}",
+            "expected_value": "tool_dataflow_analysis"
         }}
     ],
-    "strategy_explanation": "focus on core application directories",
-    "reasoning": "prioritize areas most likely to contain agent workflow"
+    "strategy_explanation": "focus on tool and data processing directories for {focus} analysis",
+    "reasoning": "prioritize areas most likely to contain tool chains and dataflow patterns relevant to {focus}"
 }}"""
 
     @staticmethod
@@ -208,10 +233,11 @@ Respond in JSON format:
 {tasks_context}
 
 REASSESSMENT STRATEGY:
-1. If HIGH/MEDIUM risk files found → increase priority of related files in same directory
-2. If agent/tool files analyzed → prioritize configuration and handler files
-3. If core application files found → prioritize their dependencies
-4. Otherwise → no priority changes needed
+1. If tool definitions found → increase priority of files that implement or consume these tools
+2. If dataflow patterns identified → prioritize upstream sources and downstream processors in the same flow
+3. If external data sources discovered → prioritize validation, parsing, and processing files
+4. If tool chains partially mapped → prioritize completing the chain analysis
+5. Otherwise → minimal priority changes needed
 
 REALISTIC EXPECTATIONS:
 - Early in analysis: few discoveries, minimal priority changes
@@ -224,7 +250,7 @@ Respond in JSON format:
     "priority_updates": {{
         "exact_task_target": new_priority_number
     }},
-    "discovery_based_reasoning": "explain connection to discoveries"
+    "discovery_based_reasoning": "explain connection to tool/dataflow discoveries"
 }}
 
 If no clear connections exist, respond:
@@ -237,39 +263,40 @@ If no clear connections exist, respond:
     @staticmethod
     def get_file_priority_prompt(context: str, files: List[str], 
                                security_findings: List[Dict] = None,
-                               workflow_analysis: Dict = None) -> str:
+                               workflow_analysis: Dict = None,
+                               focus: str = "security") -> str:
         """Improved file priority prompt focused on agent injection"""
         
-        # Filter files to focus on agent-relevant ones
-        agent_files = []
-        other_files = []
+        # Present ALL files to LLM for intelligent selection - no pre-filtering
         
-        for file in files:
-            file_lower = file.lower()
-            if any(keyword in file_lower for keyword in [
-                'agent', 'llm', 'prompt', 'tool', 'executor', 'runtime',
-                'server', 'api', 'client', 'command', 'workflow', 'handler'
-            ]) or file.endswith(('.py', '.js', '.ts')):
-                agent_files.append(file)
-            else:
-                other_files.append(file)
-        
-        return f"""You are selecting files for AGENT INJECTION analysis. Focus on files that could contain injection vulnerabilities.
+        return f"""FOCUS: {focus.upper()} - Selecting files for AGENT TOOL IMPLEMENTATION and DATAFLOW analysis.
+Your goal is to find actual code that implements tools, processes data, or manages agent workflows for {focus} analysis.
 
 REPOSITORY CONTEXT:
 {context}
 
-AGENT-RELEVANT FILES (prioritize these):
-{chr(10).join([f"{i+1}. {f}" for i, f in enumerate(agent_files[:15])])}
+ALL AVAILABLE FILES (make intelligent selections):
+{chr(10).join([f"{i+1}. {f}" for i, f in enumerate(files)])}
 
-OTHER FILES (lower priority):
-{chr(10).join([f"{i+1}. {f}" for i, f in enumerate(other_files[:10])])}
+CRITICAL SELECTION PRIORITIES FOR {focus.upper()}:
+1. **HIGHEST PRIORITY**: Source code files (.py, .js, .ts) that contain:
+   - Tool implementations (tool, executor, handler, processor, runner)
+   - Agent runtime/engine code (agent, runtime, engine, manager)
+   - Data processing pipelines (pipeline, stream, transform, parse)
+   - API/service clients (client, api, service, request, response)
 
-SELECTION RULES:
-1. Prioritize files with agent/LLM/tool keywords in filename
-2. Focus on source code files (.py, .js, .ts) over configuration
-3. Avoid documentation files unless they contain agent configurations
-4. Select maximum 3 files with highest injection potential
+2. **STRONGLY AVOID**: 
+   - Documentation files UNLESS they contain actual implementations or core information about tools/workflows
+   - Configuration files unless they define tools/workflows
+   - Test files unless analyzing tool testing
+
+3. **DATAFLOW FOCUS**: Prioritize files likely to show:
+   - How external data enters the system
+   - How data flows between components  
+   - Tool chain implementations
+   - Inter-service communication
+
+SELECT MAXIMUM 3 FILES - ALL SHOULD BE IMPLEMENTATION CODE, NOT DOCUMENTATION
 
 Respond in JSON format:
 {{
@@ -277,19 +304,19 @@ Respond in JSON format:
         {{
             "filename": "exact_filename_from_lists_above",
             "priority": "high",
-            "reason": "likely contains agent logic or LLM interaction",
-            "injection_vector": "prompt_construction|tool_execution|data_flow"
+            "reason": "likely contains tool implementation or data processing logic for {focus}",
+            "analysis_focus": "tool_definition|data_processing|external_interaction"
         }}
     ],
-    "analysis_strategy": "focus on agent injection vulnerabilities"
+    "analysis_strategy": "focus on tool chains and dataflow patterns for {focus} analysis"
 }}"""
 
     @staticmethod
     def get_security_analysis_prompt(file_path: str, content: str, language: str) -> str:
-        """Focused security analysis prompt for agent injection"""
+        """Focused security analysis prompt for tool use and dataflow analysis"""
         content_sample = content[:1500] + "..." if len(content) > 1500 else content
 
-        return f"""Analyze this code for AGENT INJECTION vulnerabilities in AI agent systems.
+        return f"""Analyze this code for TOOL USE and DATAFLOW patterns that could lead to injection vulnerabilities.
 
 FILE: {file_path}
 LANGUAGE: {language}
@@ -297,42 +324,64 @@ LANGUAGE: {language}
 CODE CONTENT:
 {content_sample}
 
-FOCUS ON AGENT INJECTION RISKS:
+**PRIMARY ANALYSIS FOCUS - Tool Use and Data Flow:**
 
-1. LLM PROMPT INJECTION:
-   - User input directly inserted into LLM prompts
-   - Unsanitized data used in prompt construction
-   - Template systems that include external data
+1. **TOOL IDENTIFICATION**: What tools/functions does this component provide or use?
+   - LLM interaction functions
+   - File processing tools  
+   - Command execution tools
+   - API/web request tools
+   - Data processing functions
 
-2. TOOL EXECUTION INJECTION:
-   - User input passed to subprocess/shell commands
-   - Tool parameters not properly validated
-   - Dynamic tool selection based on user input
+2. **DATA FLOW MAPPING**: How does data flow through this component?
+   - External input sources (user input, files, APIs, etc.)
+   - Data processing/transformation steps
+   - Output destinations (LLM prompts, tool parameters, files, etc.)
+   - Data validation/sanitization points
 
-3. DATA FLOW INJECTION:
-   - External data flowing to agent context
-   - File uploads processed by agent
-   - API responses incorporated into prompts
-
-IGNORE THESE (not agent injection):
-- SQL injection (unless it affects agent prompts)
-- XSS (unless it affects agent interface)
-- Traditional web vulnerabilities
+3. **INJECTION POINT ANALYSIS**: Where in the dataflow could malicious input cause problems?
+   - Input sanitization gaps
+   - Tool parameter construction
+   - LLM prompt building
+   - Command execution points
 
 Respond in JSON format:
 {{
-    "findings": [
-        {{
-            "vulnerability_type": "Prompt_Injection|Tool_Execution_Injection|Data_Flow_Injection",
-            "severity": "HIGH|MEDIUM|LOW",
-            "line_number": 42,
-            "description": "specific agent injection vulnerability",
-            "injection_vector": "how malicious input reaches LLM/tools",
-            "attack_scenario": "concrete exploitation example",
-            "remediation": "how to prevent this injection"
-        }}
-    ],
-    "agent_security_assessment": "overall agent injection risk level"
+    "tool_analysis": {{
+        "identified_tools": [
+            {{
+                "tool_name": "specific_tool_or_function_name",
+                "tool_type": "llm_interface|file_processor|command_executor|api_client|data_transformer",
+                "description": "what this tool does",
+                "input_sources": ["where_data_comes_from"],
+                "output_destinations": ["where_data_goes_to"]
+            }}
+        ],
+        "dataflow_patterns": [
+            {{
+                "flow_id": "flow_1",
+                "description": "brief description of this data flow",
+                "data_path": "source -> processing_step -> destination",
+                "external_input": "yes|no - can external users influence this flow",
+                "sanitization": "yes|no|partial - is input sanitized",
+                "risk_level": "HIGH|MEDIUM|LOW"
+            }}
+        ]
+    }},
+    "injection_analysis": {{
+        "potential_injection_points": [
+            {{
+                "location": "line_number_or_function_name",
+                "injection_type": "prompt_injection|tool_parameter_injection|command_injection|data_poisoning",
+                "severity": "HIGH|MEDIUM|LOW",
+                "description": "specific vulnerability description",
+                "attack_scenario": "how attacker could exploit this",
+                "affected_dataflow": "flow_id from above"
+            }}
+        ],
+        "overall_risk": "HIGH|MEDIUM|LOW"
+    }},
+    "summary": "Brief summary of tool capabilities and dataflow risks"
 }}"""
 
     @staticmethod

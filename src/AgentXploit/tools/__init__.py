@@ -107,7 +107,7 @@ def smart_agent_analyze(repo_path: str, max_steps: int = None, tool_context=None
 
     AnalysisAgentClass = _get_analyzer()
     analyzer = AnalysisAgentClass(repo_path)
-    return analyzer.analyze(max_steps=max_steps, save_results=True, focus="security")
+    return analyzer.analyze(max_steps=max_steps, save_results=True, focus=None)
 
 # Add to exports
 __all__.append('smart_agent_analyze') 

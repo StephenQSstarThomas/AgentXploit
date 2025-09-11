@@ -230,7 +230,7 @@ async def execute_command(args: argparse.Namespace) -> int:
                 result = analyzer.analyze(
                     max_steps=max_steps,
                     save_results=True,
-                    focus="security"
+                    focus=None  # Let LLM generate dynamic focus
                 )
 
                 logging.info("Static analysis completed successfully")

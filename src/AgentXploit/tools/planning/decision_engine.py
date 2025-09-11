@@ -154,13 +154,13 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
         
         model = LLMClient.get_model()
         messages = [
-            {"role": "system", "content": "You are an expert code analyzer making autonomous exploration decisions."},
+            {"role": "system", "content": "You are an expert code analyzer focused on finding agent tool implementations and dataflow patterns. Make autonomous decisions about what files and directories to analyze based on the current context and focus. Select targets that are most likely to contain relevant tool implementations or data processing logic."},
             {"role": "user", "content": prompt}
         ]
         
         decision_text = LLMClient.call_llm(
             model=model, messages=messages, max_tokens=800, 
-            temperature=0.1, timeout=30, max_retries=2
+            temperature=0.6, timeout=30, max_retries=2
         )
         
         if decision_text:
@@ -181,14 +181,54 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
         # Build context with available files from current directory  
         context = self._build_content_decision_context(file_path, content, security_result)
         
-        # Get current directory files for strict validation
+        # Get available files from multiple relevant directories for content follow-up
         current_dir = str(Path(file_path).parent) if "/" in file_path else "."
+        
         try:
             from ..core.core_tools import EnhancedFileReader
             tools = EnhancedFileReader(self.repo_path)
-            dir_result = tools.list_directory(current_dir)
-            context["available_files"] = dir_result.get("files", [])
-            context["available_dirs"] = dir_result.get("directories", [])
+            
+            # Get files from current directory
+            current_dir_result = tools.list_directory(current_dir)
+            available_files = current_dir_result.get("files", [])
+            available_dirs = current_dir_result.get("directories", [])
+            
+            # For content follow-up, also include related directories at the same level
+            parent_dir = str(Path(current_dir).parent) if current_dir != "." else "."
+            if parent_dir != current_dir:  # Only if we have a parent
+                try:
+                    parent_result = tools.list_directory(parent_dir)
+                    parent_dirs = parent_result.get("directories", [])
+                    
+                    # Add sibling directories as potential targets
+                    for sibling_dir in parent_dirs:
+                        if sibling_dir != Path(current_dir).name:  # Don't include current dir
+                            full_sibling_path = f"{parent_dir}/{sibling_dir}" if parent_dir != "." else sibling_dir
+                            available_dirs.append(full_sibling_path)
+                            
+                            # Also check for common related files in sibling directories
+                            try:
+                                sibling_result = tools.list_directory(full_sibling_path)
+                                for file_name in sibling_result.get("files", []):
+                                    full_file_path = f"{full_sibling_path}/{file_name}"
+                                    available_files.append(full_file_path)
+                            except:
+                                pass  # Ignore errors accessing sibling directories
+                except:
+                    pass  # Ignore errors accessing parent directory
+            
+            context["available_files"] = available_files
+            context["available_dirs"] = available_dirs
+            
+            # Debug logging for content follow-up scope - show ALL files and dirs
+            print(f"  [CONTENT_SCOPE] Current dir: {current_dir}")
+            print(f"  [CONTENT_SCOPE] Available files count: {len(available_files)}")
+            print(f"  [CONTENT_SCOPE] Available dirs count: {len(available_dirs)}")
+            if available_files:
+                print(f"  [CONTENT_SCOPE] All files: {available_files}")
+            if available_dirs:
+                print(f"  [CONTENT_SCOPE] All dirs: {available_dirs}")
+            
         except:
             context["available_files"] = []
             context["available_dirs"] = []
@@ -197,13 +237,13 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
         
         model = LLMClient.get_model()
         messages = [
-            {"role": "system", "content": "You are an expert code analyzer making autonomous content analysis decisions. AVOID suggesting files that have already been analyzed (check history context)."},
+            {"role": "system", "content": "You are an expert code analyzer focused on tool implementations and dataflow tracking. Make autonomous decisions about follow-up analysis based on the current file content and context. Select files and directories that are most likely to contain related tool implementations or continue the dataflow analysis."},
             {"role": "user", "content": prompt}
         ]
         
         decision_text = LLMClient.call_llm(
             model=model, messages=messages, max_tokens=600,
-            temperature=0.3, timeout=30, max_retries=2  # Increase temperature for more diverse decisions
+            temperature=0.7, timeout=30, max_retries=2  # Increase temperature for more diverse decisions
         )
         
         if decision_text:
@@ -373,38 +413,73 @@ Respond ONLY in JSON format:
         if isinstance(analysis_targets, list):
             for target in analysis_targets[:6]:  # Limit to 6 targets
                 if isinstance(target, dict) and "path" in target:
-                    target_path = target["path"]
+                    target_path = target["path"].strip()  # Clean up any whitespace
                     target_type = target.get("type", "file")
                     
-                    print(f"  [VALIDATION_DEBUG] Checking {target_type}: '{target_path}'")
-                    if target_type == "file":
-                        file_match = target_path in available_files if available_files else False
-                        print(f"    File match: {file_match} (in {len(available_files) if available_files else 0} available files)")
-                    else:
-                        dir_match = target_path in available_dirs if available_dirs else False
-                        print(f"    Dir match: {dir_match} (in {len(available_dirs) if available_dirs else 0} available dirs)")
-                        if not dir_match and available_dirs:
-                            print(f"    Available dirs: {available_dirs[:10]}...")
+                    # No hallucination check - trust LLM to use exact names from lists
                     
-                    # Improved validation with better path matching
+                    print(f"  [VALIDATION_DEBUG] Checking {target_type}: '{target_path}'")
+                    
+                    # Smart type correction: if LLM type is wrong, auto-correct based on available lists
+                    corrected_type = target_type
                     is_valid = False
                     
-                    if target_type == "file" and available_files:
-                        # Only allow exact matches - remove fuzzy matching to prevent hallucinated files
-                        if target_path in available_files:
-                            is_valid = True
-                        else:
-                            print(f"  [VALIDATION] File '{target_path}' not found in available files: {available_files[:5]}")
-                    elif target_type == "directory" and available_dirs:
-                        # Only allow exact matches - remove fuzzy matching to prevent hallucinated dirs  
-                        if target_path in available_dirs:
-                            is_valid = True
-                        else:
-                            print(f"  [VALIDATION] Directory '{target_path}' not found in available dirs: {available_dirs[:5]}")
+                    # Enhanced path matching - check for exact matches and relative path matches
+                    file_match = False
+                    dir_match = False
+                    
+                    if available_files:
+                        # Direct match
+                        file_match = target_path in available_files
+                        # Also check for basename match (for cases where paths might be relative)
+                        if not file_match:
+                            target_basename = target_path.split('/')[-1]
+                            file_match = any(f.endswith('/' + target_basename) or f == target_basename for f in available_files)
+                    
+                    if available_dirs:
+                        # Direct match
+                        dir_match = target_path in available_dirs
+                        # Also check for basename match
+                        if not dir_match:
+                            target_basename = target_path.split('/')[-1]
+                            dir_match = any(d.endswith('/' + target_basename) or d == target_basename for d in available_dirs)
+                    
+                    print(f"    File match: {file_match}, Dir match: {dir_match}")
+                    print(f"    Target path: '{target_path}'")
+                    
+                    # Auto-correct type based on actual availability
+                    if file_match and not dir_match:
+                        corrected_type = "file"
+                        is_valid = True
+                        if target_type != "file":
+                            print(f"    [AUTO_CORRECT] Type corrected from '{target_type}' to 'file'")
+                    elif dir_match and not file_match:
+                        corrected_type = "directory"
+                        is_valid = True
+                        if target_type != "directory":
+                            print(f"    [AUTO_CORRECT] Type corrected from '{target_type}' to 'directory'")
+                    elif file_match and dir_match:
+                        # If both match (rare case), prefer the original LLM type
+                        is_valid = True
+                        print(f"    [AMBIGUOUS] Path exists in both lists, keeping original type: {target_type}")
+                    else:
+                        print(f"  [VALIDATION] Path '{target_path}' not found in available files or dirs")
+                        if available_files and len(available_files) <= 10:
+                            print(f"    Available files: {available_files}")
+                        elif available_files:
+                            print(f"    Available files (first 10): {available_files[:10]}")
+                        if available_dirs and len(available_dirs) <= 10:
+                            print(f"    Available dirs: {available_dirs}")
+                        elif available_dirs:
+                            print(f"    Available dirs (first 10): {available_dirs[:10]}")
+                    
+                    # Update the target with corrected type
+                    if is_valid:
+                        target["type"] = corrected_type
                     
                     if is_valid:
                         validated["analysis_targets"].append(target)
-                        print(f"  [VALIDATION] Accepted {target_type}: {target_path}")
+                        print(f"  [VALIDATION] Accepted {corrected_type}: {target_path}")
                     else:
                         print(f"  [VALIDATION] Rejected {target_type}: {target_path} (not in available lists)")
         
@@ -420,27 +495,73 @@ Respond ONLY in JSON format:
         if isinstance(follow_up_targets, list):
             for target in follow_up_targets:
                 if isinstance(target, dict) and "path" in target:
-                    target_path = target["path"]
+                    target_path = target["path"].strip()  # Clean up any whitespace
                     target_type = target.get("type", "file")
+                    
+                    # No hallucination check - trust LLM to use exact names from lists
                     
                     print(f"  [CONTENT_VALIDATION] Checking {target_type}: '{target_path}'")
                     
-                    # Simple validation like in exploration
+                    # Smart type correction for content follow-up
+                    corrected_type = target_type
                     is_valid = False
-                    if target_type == "file" and available_files:
-                        if target_path in available_files:
-                            is_valid = True
-                        else:
-                            print(f"  [CONTENT_VALIDATION] File '{target_path}' not in available files: {available_files[:5]}")
-                    elif target_type == "directory" and available_dirs:
-                        if target_path in available_dirs:
-                            is_valid = True
-                        else:
-                            print(f"  [CONTENT_VALIDATION] Directory '{target_path}' not in available dirs: {available_dirs[:5]}")
+                    
+                    # Enhanced path matching - check for exact matches and relative path matches
+                    file_match = False
+                    dir_match = False
+                    
+                    if available_files:
+                        # Direct match
+                        file_match = target_path in available_files
+                        # Also check for basename match (for cases where paths might be relative)
+                        if not file_match:
+                            target_basename = target_path.split('/')[-1]
+                            file_match = any(f.endswith('/' + target_basename) or f == target_basename for f in available_files)
+                    
+                    if available_dirs:
+                        # Direct match
+                        dir_match = target_path in available_dirs
+                        # Also check for basename match
+                        if not dir_match:
+                            target_basename = target_path.split('/')[-1]
+                            dir_match = any(d.endswith('/' + target_basename) or d == target_basename for d in available_dirs)
+                    
+                    print(f"    File match: {file_match}, Dir match: {dir_match}")
+                    print(f"    Target path: '{target_path}'")
+                    if available_files and len(available_files) <= 10:
+                        print(f"    Available files: {available_files}")
+                    if available_dirs and len(available_dirs) <= 10:
+                        print(f"    Available dirs: {available_dirs}")
+                    
+                    # Auto-correct type based on actual availability
+                    if file_match and not dir_match:
+                        corrected_type = "file"
+                        is_valid = True
+                        if target_type != "file":
+                            print(f"    [CONTENT_AUTO_CORRECT] Type corrected from '{target_type}' to 'file'")
+                    elif dir_match and not file_match:
+                        corrected_type = "directory"
+                        is_valid = True
+                        if target_type != "directory":
+                            print(f"    [CONTENT_AUTO_CORRECT] Type corrected from '{target_type}' to 'directory'")
+                    elif file_match and dir_match:
+                        # If both match, prefer the original LLM type
+                        is_valid = True
+                        print(f"    [CONTENT_AMBIGUOUS] Path exists in both lists, keeping original type: {target_type}")
+                    else:
+                        print(f"  [CONTENT_VALIDATION] Path '{target_path}' not found in available files or dirs")
+                        if available_files:
+                            print(f"    Available files: {available_files}")
+                        if available_dirs:
+                            print(f"    Available dirs: {available_dirs}")
+                    
+                    # Update the target with corrected type
+                    if is_valid:
+                        target["type"] = corrected_type
                     
                     if is_valid:
                         validated["follow_up_targets"].append(target)
-                        print(f"  [CONTENT_VALIDATION] Accepted {target_type}: {target_path}")
+                        print(f"  [CONTENT_VALIDATION] Accepted {corrected_type}: {target_path}")
                     else:
                         print(f"  [CONTENT_VALIDATION] Rejected {target_type}: {target_path} (not available)")
         
@@ -583,7 +704,7 @@ Respond ONLY in JSON format:
         
         return result
     
-    def autonomous_context_reassessment(self, context_manager, task_queue, context, tools) -> None:
+    def autonomous_context_reassessment(self, context_manager, task_queue, context, tools, focus: str) -> None:
         """LLM-driven strategic context reassessment - moved from AnalysisAgent"""
         try:
             print("LLM-Driven Context Reassessment...")
@@ -650,7 +771,8 @@ Respond ONLY in JSON format:
                 current_state=current_state,
                 unexplored_root_dirs=unexplored_root_dirs,
                 unexplored_subdirs=unexplored_subdirs,
-                task_queue_size=task_queue.size()
+                task_queue_size=task_queue.size(),
+                focus=focus  # Use dynamic focus passed from caller
             )
 
             messages = [
@@ -662,7 +784,7 @@ Respond ONLY in JSON format:
                 model=model,
                 messages=messages,
                 max_tokens=1000,
-                temperature=0.3,
+                temperature=0.4,
                 timeout=30,
                 max_retries=2
             )
@@ -758,66 +880,7 @@ Respond ONLY in JSON format:
                 tasks_added += 1
                 print(f"    [+] {action_display} {normalized_target} (priority: {priority}) - {reason}")
         
-        # Simplified fallback for backward compatibility
-        if not next_actions:
-            print("  [FALLBACK] Using simplified legacy format...")
-            
-            # Process any legacy formats through the same validation pipeline
-            legacy_actions = []
-            
-            # Convert legacy explore_directories
-            for dir_name in decisions.get("explore_directories", [])[:3]:
-                if dir_name in unexplored_root_dirs or dir_name in unexplored_subdirs:
-                    legacy_actions.append({
-                        "action": "explore_directory",
-                        "target": dir_name,
-                        "priority": "medium",
-                        "reason": "Legacy fallback exploration"
-                    })
-            
-            # Convert legacy read_files
-            for file_path in decisions.get("read_files", [])[:3]:
-                legacy_actions.append({
-                    "action": "analyze_file", 
-                    "target": file_path,
-                    "priority": "medium",
-                    "reason": "Legacy fallback analysis"
-                })
-                
-            # Process through same validation pipeline
-            for action_info in legacy_actions:
-                target = action_info["target"]
-                action = action_info["action"]
-                
-                normalized_target, is_valid, validation_reason = self.path_manager.validate_and_resolve_target(target, action)
-                if is_valid:
-                    # 使用与LLM priority assessment相同的逻辑
-                    priority_str = action_info["priority"]
-                    if priority_str == "high":
-                        priority = 95  # Very high priority
-                    elif priority_str == "medium":
-                        priority = 80  # High priority  
-                    else:
-                        priority = 60  # Low priority
-                    
-                    if action == "explore_directory":
-                        task = Task(TaskType.EXPLORE, normalized_target, priority=priority)
-                        print(f"    [+] EXPLORE {normalized_target} (legacy, priority: {priority})")
-                    else:
-                        task = Task(TaskType.READ, normalized_target, priority=priority)
-                        print(f"    [+] READ {normalized_target} (legacy, priority: {priority})")
-                    
-                    task_queue.add_task(task)
-                    tasks_added += 1
-        
         if tasks_added > 0:
             print(f"  [SUCCESS] Added {tasks_added} strategic LLM-driven tasks to queue")
         else:
-            print("  [WARNING] No valid tasks extracted from LLM decisions")
-            # # Emergency fallback - add at least one exploration task (COMMENTED OUT FOR TESTING)
-            # if unexplored_root_dirs:
-            #     emergency_target = unexplored_root_dirs[0]
-            #     task = Task(TaskType.EXPLORE, emergency_target, priority=60)
-            #     task_queue.add_task(task)
-            #     print(f"  [EMERGENCY] Added fallback exploration: {emergency_target}")
-            print("  No valid LLM decisions extracted")
+            print("  [WARNING] No valid tasks extracted from LLM decisions - relying on LLM autonomy")
