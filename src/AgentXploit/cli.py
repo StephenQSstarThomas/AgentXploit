@@ -354,18 +354,13 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
         print(f"\nConfiguration:")
         print(f"  Target path: {target_path}")
         print(f"  Mode: Intelligent LLM-driven setup")
-        
-        # Confirmation unless dry-run
-        if not args.dry_run:
-            proceed = input(f"\nProceed with intelligent dynamic analysis? (y/n): ").strip().lower()
-            if proceed not in ['y', 'yes']:
-                print("Dynamic analysis cancelled.")
-                return 0
-        else:
+
+        # Handle dry-run mode
+        if args.dry_run:
             print("\n[DRY RUN] Would proceed with intelligent dynamic analysis")
             return 0
-        
-        print(f"\nStarting intelligent environment setup...")
+
+        print(f"\nAutomatically starting intelligent environment setup...")
         
         # Step 1: Setup intelligent Docker environment
         env_result = await setup_analysis_environment(
@@ -450,67 +445,25 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
 
 
 async def get_docker_image_input(detected_image: str = None) -> str:
-    """Get Docker image through interactive input."""
+    """Get Docker image automatically, preferring detected image."""
     print(f"\nDocker Image Selection:")
-    
+
     if detected_image:
-        use_detected = input(f"Use detected image '{detected_image}'? (y/n): ").strip().lower()
-        if use_detected in ['y', 'yes', '']:
-            return detected_image
+        print(f"Automatically using detected image: {detected_image}")
+        return detected_image
     
-    print("\nSelect Docker image:")
-    print("1. python:3.12 (recommended for Python apps)")
-    print("2. python:3.12-slim (lighter Python image)")
-    print("3. node:18-alpine (for Node.js apps)")
-    print("4. ubuntu:22.04 (general purpose)")
-    print("5. Custom image")
-    
-    choice = input("Enter choice (1-5) [default: 1]: ").strip() or "1"
-    
-    image_map = {
-        "1": "python:3.12",
-        "2": "python:3.12-slim", 
-        "3": "node:18-alpine",
-        "4": "ubuntu:22.04"
-    }
-    
-    if choice in image_map:
-        return image_map[choice]
-    elif choice == "5":
-        custom = input("Enter custom Docker image: ").strip()
-        return custom if custom else "python:3.12"
-    else:
-        return "python:3.12"
+    # Auto-select default image when no image detected
+    default_image = "python:3.12"
+    print(f"No image detected, automatically using default: {default_image}")
+    return default_image
 
 
 async def get_port_mapping_input() -> str:
-    """Get port mapping configuration."""
+    """Get port mapping configuration automatically."""
     print(f"\nPort Mapping:")
-    print("Common port mappings:")
-    print("1. 5000:5000 (Flask default)")
-    print("2. 3000:3000 (Node.js/React default)")
-    print("3. 8000:8000 (Django/FastAPI default)")
-    print("4. 80:80 (HTTP)")
-    print("5. Custom mapping")
-    print("6. No port mapping")
-    
-    choice = input("Enter choice (1-6) [default: 1]: ").strip() or "1"
-    
-    port_map = {
-        "1": "5000:5000",
-        "2": "3000:3000",
-        "3": "8000:8000", 
-        "4": "80:80",
-        "6": "none"
-    }
-    
-    if choice in port_map:
-        return port_map[choice]
-    elif choice == "5":
-        custom = input("Enter custom port mapping (host:container): ").strip()
-        return custom if custom else "5000:5000"
-    else:
-        return "5000:5000"
+    default_port = "5000:5000"
+    print(f"Automatically using default port mapping: {default_port}")
+    return default_port
 
 
 async def interactive_command_session(deployment_id: str, analyzer) -> None:
@@ -591,17 +544,12 @@ async def execute_optimized_command(args: argparse.Namespace) -> int:
         print(f"  Benign task: {benign_task}")
         print(f"  Docker image: {docker_image or 'Auto-detected'}")
         
-        # Confirmation unless dry-run
-        if not args.dry_run:
-            proceed = input(f"\nProceed with optimized exploit workflow? (y/n): ").strip().lower()
-            if proceed not in ['y', 'yes']:
-                print("Optimized workflow cancelled.")
-                return 0
-        else:
+        # Handle dry-run mode
+        if args.dry_run:
             print("\n[DRY RUN] Would proceed with optimized workflow")
             return 0
-        
-        print(f"\nStarting optimized exploit workflow...")
+
+        print(f"\nAutomatically starting optimized exploit workflow...")
         
         # Execute optimized workflow
         result = await execute_optimized_exploit_workflow(

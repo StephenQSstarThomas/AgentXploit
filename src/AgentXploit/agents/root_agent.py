@@ -17,7 +17,6 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 
 from .analysis_agent import build_analysis_agent
-from .injection_agent import build_injection_agent
 from .exploit_agent import build_exploit_agent
 from ..config import settings
 
@@ -32,7 +31,6 @@ def build_root_agent() -> Agent:
     
     # Build the specialized agents
     analysis_agent = build_analysis_agent()
-    injection_agent = build_injection_agent()
     exploit_agent = build_exploit_agent()
     
     # Create the root agent with AgentTool wrappers
@@ -51,13 +49,7 @@ Available Specialized Agents:
    - Pattern detection and vulnerability assessment
    - Architectural analysis and risk assessment
 
-2. **Injection Agent** (via 'injection' tool):
-   - Prompt injection vulnerability research
-   - Injection payload generation and testing
-   - Trajectory file processing and batch operations
-   - Injection opportunity analysis and exploitation
-
-3. **Exploit Agent** (via 'exploit' tool):
+2. **Exploit Agent** (via 'exploit' tool):
    - Advanced exploit development and testing
    - Secure sandbox command execution
    - Comprehensive vulnerability scanning
@@ -72,14 +64,6 @@ Decision Framework:
 - "Generate security assessment of [repository]"
 - "Analyze call graph/dataflow of [target]"
 - "Detect vulnerability patterns in [code]"
-
-**Use Injection Agent for**:
-- "Inject malicious prompt into [file/content]"
-- "Analyze trajectory file [path] for injection"
-- "Batch process trajectories in [directory]"
-- "Generate injection payload for [target]"
-- "Find injection points in [content]"
-- "Demonstrate injection attack on [target]"
 
 **Use Exploit Agent for**:
 - "Execute secure command [command] in sandbox"
@@ -108,7 +92,6 @@ Your responses should be professional, detailed, and focused on helping users un
 """,
         tools=[
             AgentTool(agent=analysis_agent, skip_summarization=True),
-            AgentTool(agent=injection_agent, skip_summarization=True),
             AgentTool(agent=exploit_agent, skip_summarization=True),
         ],
     )

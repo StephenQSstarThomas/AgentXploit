@@ -14,12 +14,10 @@
 
 from .root_agent import build_root_agent
 from .analysis_agent import build_analysis_agent
-from .injection_agent import build_injection_agent
 from .exploit_agent import build_exploit_agent
 
 __all__ = [
     'build_root_agent',
-    'build_analysis_agent', 
-    'build_injection_agent',
+    'build_analysis_agent',
     'build_exploit_agent'
 ]
