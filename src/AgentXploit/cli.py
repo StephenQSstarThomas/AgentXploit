@@ -99,6 +99,19 @@ def create_parser() -> argparse.ArgumentParser:
         help="Analysis mode: intelligent (iterative) or simple (batch)"
     )
 
+    # Get default timeout from environment or settings
+    try:
+        default_timeout = int(os.getenv("TIMEOUT", "600"))
+    except ValueError:
+        default_timeout = 600
+
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=default_timeout,
+        help=f"Timeout in seconds for Docker command execution (default: {default_timeout}, from env TIMEOUT)"
+    )
+
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -109,6 +122,19 @@ def create_parser() -> argparse.ArgumentParser:
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose logging"
+    )
+
+    parser.add_argument(
+        "--live-output",
+        action="store_true",
+        default=True,
+        help="Enable real-time output streaming (default: True)"
+    )
+
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Disable real-time output streaming (overrides --live-output)"
     )
 
     return parser
@@ -187,9 +213,14 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
         # Configuration
         target_path = args.repository
 
+        # 确定是否启用实时输出
+        live_output = args.live_output and not args.quiet
+
         print(f"\nConfiguration:")
         print(f"  Target path: {target_path}")
         print(f"  Mode: Intelligent LLM-driven setup")
+        print(f"  Timeout: {args.timeout} seconds")
+        print(f"  Live output: {'Enabled' if live_output else 'Disabled'}")
 
         # Handle dry-run mode
         if args.dry_run:
@@ -228,7 +259,9 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
         result = await execute_interactive_analysis(
             target_path=target_path,
             require_user_input=True,
-            existing_deployment_id=deployment_id
+            existing_deployment_id=deployment_id,
+            timeout=args.timeout,
+            live_output=live_output
         )
 
         # Display results
