@@ -105,6 +105,12 @@ class Settings:
         # Add CUSTOM_TASK and RUN_COMMAND for target agent execution
         self.CUSTOM_TASK = os.getenv("CUSTOM_TASK")
         self.RUN_COMMAND = os.getenv("RUN_COMMAND")
+
+        # Add phase execution commands for non-OpenHands workflows
+        self.PHASE_2_EXECUTION_COMMAND = os.getenv("PHASE_2_EXECUTION_COMMAND")
+        self.PHASE_4_EXECUTION_COMMAND = os.getenv("PHASE_4_EXECUTION_COMMAND")
+        self.PHASE4_WORKSPACE = os.getenv("PHASE4_WORKSPACE", "/work")
+        self.REPORT_PATH = os.getenv("REPORT_PATH")
     
     
     def _load_cli_defaults(self):
