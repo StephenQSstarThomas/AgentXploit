@@ -1,17 +1,3 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Centralized LLM client with robust error handling and retry logic
 """
@@ -40,7 +26,10 @@ class LLMClient:
             LLM response text or None if all retries failed
         """
         import time
+        import litellm
         from litellm import completion
+
+        litellm.drop_params = True
 
         for attempt in range(max_retries):
             try:
@@ -80,9 +69,9 @@ class LLMClient:
         """Get configured LLM model"""
         try:
             from ...config import settings
-            # Use DEFAULT_MODEL from environment/config
-            return settings.DEFAULT_MODEL
+            # Try EXPLOIT_AGENT_MODEL first, then fall back to DEFAULT_MODEL
+            return getattr(settings, 'EXPLOIT_AGENT_MODEL', settings.DEFAULT_MODEL)
         except:
             # Fallback: try environment directly
             import os
-            return os.getenv("DEFAULT_MODEL", "openai/gpt-4o")
+            return os.getenv("EXPLOIT_AGENT_MODEL", os.getenv("DEFAULT_MODEL", "openai/gpt-4o"))
