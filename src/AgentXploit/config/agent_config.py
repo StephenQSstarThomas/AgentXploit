@@ -110,12 +110,16 @@ class AgentConfigManager:
             self._configs["root"].timeout_seconds = int(os.getenv("ROOT_AGENT_TIMEOUT"))
         
         # Analysis agent overrides
+        if os.getenv("ANALYSIS_AGENT_MODEL"):
+            self._configs["analysis"].model_name = os.getenv("ANALYSIS_AGENT_MODEL")
         if os.getenv("ANALYSIS_MAX_FILES"):
             self._configs["analysis"].max_files_per_analysis = int(os.getenv("ANALYSIS_MAX_FILES"))
         if os.getenv("ANALYSIS_DEPTH"):
             self._configs["analysis"].analysis_depth = os.getenv("ANALYSIS_DEPTH")
         
         # Injection agent overrides
+        if os.getenv("EXPLOIT_AGENT_MODEL"):
+            self._configs["injection"].model_name = os.getenv("EXPLOIT_AGENT_MODEL")
         if os.getenv("INJECTION_COMMAND_TYPE"):
             self._configs["injection"].default_command_type = os.getenv("INJECTION_COMMAND_TYPE")
         if os.getenv("INJECTION_STRATEGY"):

@@ -65,13 +65,29 @@ class LLMClient:
         return None
 
     @staticmethod
-    def get_model() -> str:
-        """Get configured LLM model"""
+    def get_model(agent_type: str = None) -> str:
+        """Get configured LLM model for specific agent type"""
         try:
             from ...config import settings
-            # Try EXPLOIT_AGENT_MODEL first, then fall back to DEFAULT_MODEL
-            return getattr(settings, 'EXPLOIT_AGENT_MODEL', settings.DEFAULT_MODEL)
+
+            # Return specific model based on agent type
+            if agent_type == "analysis":
+                return getattr(settings, 'ANALYSIS_AGENT_MODEL', settings.DEFAULT_MODEL)
+            elif agent_type == "exploit":
+                return getattr(settings, 'EXPLOIT_AGENT_MODEL', settings.DEFAULT_MODEL)
+            elif agent_type == "root":
+                return getattr(settings, 'ROOT_AGENT_MODEL', settings.DEFAULT_MODEL)
+            else:
+                # Default fallback to DEFAULT_MODEL instead of EXPLOIT_AGENT_MODEL
+                return getattr(settings, 'DEFAULT_MODEL', 'openai/gpt-4o')
         except:
             # Fallback: try environment directly
             import os
-            return os.getenv("EXPLOIT_AGENT_MODEL", os.getenv("DEFAULT_MODEL", "openai/gpt-4o"))
+            if agent_type == "analysis":
+                return os.getenv("ANALYSIS_AGENT_MODEL", os.getenv("DEFAULT_MODEL", "openai/gpt-4o"))
+            elif agent_type == "exploit":
+                return os.getenv("EXPLOIT_AGENT_MODEL", os.getenv("DEFAULT_MODEL", "openai/gpt-4o"))
+            elif agent_type == "root":
+                return os.getenv("ROOT_AGENT_MODEL", os.getenv("DEFAULT_MODEL", "openai/gpt-4o"))
+            else:
+                return os.getenv("DEFAULT_MODEL", "openai/gpt-4o")

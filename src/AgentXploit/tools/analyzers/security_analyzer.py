@@ -178,63 +178,111 @@ Format response as JSON:
         
         print(f"  [LLM_RESPONSE] Got response: {len(result_text) if result_text else 0} characters")
 
-        if result_text:
+        if result_text and len(result_text.strip()) > 0:
             # Try to parse JSON response with enhanced error handling
-            try:
-                import json
-                # First try direct parsing
-                parsed_result = json.loads(result_text)
-                
-                # Validate required structure
-                if "tool_analysis" not in parsed_result:
-                    print(f"  [WARNING] LLM response missing tool_analysis for {file_path}")
-                    parsed_result["tool_analysis"] = {"identified_tools": [], "dataflow_patterns": []}
-                
-                # Log successful dataflow/tool detection
-                tool_analysis = parsed_result.get("tool_analysis", {})
-                tools_count = len(tool_analysis.get("identified_tools", []))
-                flows_count = len(tool_analysis.get("dataflow_patterns", []))
-                if tools_count > 0 or flows_count > 0:
-                    print(f"  [DATAFLOW_SUCCESS] Found {tools_count} tools, {flows_count} dataflow patterns in {file_path}")
-                
-                return parsed_result
-                
-            except json.JSONDecodeError as e:
-                print(f"  [JSON_ERROR] Failed to parse LLM response for {file_path}: {e}")
-                print(f"  [JSON_ERROR] Response preview: {result_text[:200]}...")
-                
-                # Try to extract JSON from response if it's embedded
+            import json
+            import re
+
+            def try_parse_json(text_to_parse):
+                """Try to parse JSON with validation"""
                 try:
-                    start_idx = result_text.find('{')
-                    end_idx = result_text.rfind('}') + 1
-                    if start_idx != -1 and end_idx > start_idx:
-                        json_str = result_text[start_idx:end_idx]
-                        parsed_result = json.loads(json_str)
-                        print(f"  [JSON_RECOVERY] Successfully extracted JSON from response")
-                        
-                        # Validate structure
-                        if "tool_analysis" not in parsed_result:
-                            parsed_result["tool_analysis"] = {"identified_tools": [], "dataflow_patterns": []}
-                        
+                    parsed = json.loads(text_to_parse)
+                    # Validate required structure
+                    if "tool_analysis" not in parsed:
+                        print(f"  [WARNING] LLM response missing tool_analysis for {file_path}")
+                        parsed["tool_analysis"] = {"identified_tools": [], "dataflow_patterns": []}
+
+                    # Ensure required sub-structures exist
+                    if "identified_tools" not in parsed["tool_analysis"]:
+                        parsed["tool_analysis"]["identified_tools"] = []
+                    if "dataflow_patterns" not in parsed["tool_analysis"]:
+                        parsed["tool_analysis"]["dataflow_patterns"] = []
+
+                    # Log successful dataflow/tool detection
+                    tool_analysis = parsed.get("tool_analysis", {})
+                    tools_count = len(tool_analysis.get("identified_tools", []))
+                    flows_count = len(tool_analysis.get("dataflow_patterns", []))
+                    if tools_count > 0 or flows_count > 0:
+                        print(f"  [DATAFLOW_DETECTED] {file_path}: {tools_count} tools, {flows_count} flows")
+
+                    return parsed
+                except json.JSONDecodeError:
+                    return None
+
+            # Method 1: Try direct parsing
+            parsed_result = try_parse_json(result_text.strip())
+            if parsed_result:
+                return parsed_result
+
+            # Method 2: Try removing markdown code blocks
+            markdown_pattern = r'```(?:json)?\s*(.*?)\s*```'
+            markdown_match = re.search(markdown_pattern, result_text, re.DOTALL)
+            if markdown_match:
+                json_content = markdown_match.group(1).strip()
+                parsed_result = try_parse_json(json_content)
+                if parsed_result:
+                    print(f"  [JSON_RECOVERY] Successfully extracted JSON from markdown for {file_path}")
+                    return parsed_result
+
+            # Method 3: Find JSON object boundaries
+            start_idx = result_text.find('{')
+            if start_idx != -1:
+                # Try to find matching closing brace
+                brace_count = 0
+                end_idx = start_idx
+                for i, char in enumerate(result_text[start_idx:], start_idx):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i + 1
+                            break
+
+                if end_idx > start_idx:
+                    json_str = result_text[start_idx:end_idx]
+                    parsed_result = try_parse_json(json_str)
+                    if parsed_result:
+                        print(f"  [JSON_RECOVERY] Successfully extracted JSON from response for {file_path}")
+                        return parsed_result
+
+            # Method 4: Try array format
+            array_start = result_text.find('[')
+            array_end = result_text.rfind(']') + 1
+            if array_start != -1 and array_end > array_start:
+                try:
+                    array_result = json.loads(result_text[array_start:array_end])
+                    if isinstance(array_result, list) and len(array_result) > 0:
+                        # Convert array to expected format
+                        parsed_result = {
+                            "tool_analysis": {"identified_tools": array_result, "dataflow_patterns": []},
+                            "overall_risk": "MEDIUM",
+                            "risk_score": 50
+                        }
+                        print(f"  [JSON_RECOVERY] Successfully parsed JSON array for {file_path}")
                         return parsed_result
                 except:
                     pass
-                
-                # If all parsing fails, return structured response with debug info
-                return {
-                    "overall_risk": "MEDIUM",
-                    "risk_score": 50,
-                    "tool_analysis": {
-                        "identified_tools": [],
-                        "dataflow_patterns": []
-                    },
-                    "injection_analysis": {
-                        "potential_injection_points": []
-                    },
-                    "summary": result_text[:500],
-                    "llm_raw_response": result_text,
-                    "parse_error": str(e)
-                }
+
+            # All parsing methods failed
+            print(f"  [JSON_ERROR] All JSON parsing methods failed for {file_path}")
+            print(f"  [JSON_ERROR] Response preview: {result_text[:300]}...")
+
+            # If all parsing fails, return structured response with debug info
+            return {
+                "overall_risk": "MEDIUM",
+                "risk_score": 50,
+                "tool_analysis": {
+                    "identified_tools": [],
+                    "dataflow_patterns": []
+                },
+                "injection_analysis": {
+                    "potential_injection_points": []
+                },
+                "summary": result_text[:500],
+                "llm_raw_response": result_text,
+                "parse_error": "JSON parsing failed after all recovery attempts"
+            }
         else:
             return {
                 "overall_risk": "UNKNOWN",

@@ -454,7 +454,7 @@ Respond in JSON format:
     "strategy": "brief explanation of selection strategy"
 }}"""
 
-            model = LLMClient.get_model()
+            model = LLMClient.get_model("analysis")
             messages = [
                 {"role": "system", "content": "You are a security analyst selecting the most valuable analysis targets."},
                 {"role": "user", "content": prompt}
@@ -642,7 +642,7 @@ Respond in JSON format:
         )
 
         # Use LLM to get priority assessment
-        model = LLMClient.get_model()
+        model = LLMClient.get_model("analysis")
         messages = [
             {"role": "system", "content": "You are an expert code analyst focused on finding agent tool implementations and dataflow patterns. Make autonomous decisions about file priorities based on the current analysis context and focus. Your goal is to identify files that contain actual tool implementations, data processing logic, or agent workflow management code."},
             {"role": "user", "content": priority_prompt}
@@ -846,7 +846,7 @@ Respond in JSON format:
         security_context = PromptManager.get_security_analysis_prompt(file_path, content_sample, language)
 
         # Use LLM for security analysis
-        model = LLMClient.get_model()
+        model = LLMClient.get_model("analysis")
         messages = [
             {"role": "system", "content": "You are an expert security auditor analyzing code for vulnerabilities. Focus on real security issues, not false positives."},
             {"role": "user", "content": security_context}
@@ -1703,7 +1703,7 @@ SECURITY ANALYSIS STATE:
             )
             
             # Ask LLM for intelligent decision
-            model = LLMClient.get_model()
+            model = LLMClient.get_model("analysis")
             messages = [
                 {"role": "system", "content": "You are an intelligent agent injection analysis strategist making strategic reassessment decisions based on comprehensive security discoveries and workflow patterns."},
                 {"role": "user", "content": decision_prompt}
@@ -1785,7 +1785,7 @@ SECURITY ANALYSIS STATE:
             )
             
             # Get LLM decision on task prioritization
-            model = LLMClient.get_model()
+            model = LLMClient.get_model("analysis")
             messages = [
                 {"role": "system", "content": "You are an intelligent agent security analyst making strategic task prioritization decisions based on discoveries."},
                 {"role": "user", "content": reassessment_prompt}

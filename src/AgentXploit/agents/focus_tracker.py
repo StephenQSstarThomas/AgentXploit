@@ -276,7 +276,7 @@ class FocusTracker:
         """Get a summary of current analysis state"""
         return {
             'active_focuses': len(self.active_focuses),
-            'total_findings': sum(len(f.key_findings) for f in self.active_focuses.values()),
+            'total_findings': sum(len(getattr(f, 'key_findings', [])) for f in self.active_focuses.values()),
             'highest_priority': max([f.priority for f in self.active_focuses.values()], default=0),
             'focuses': [f.to_dict() for f in self.active_focuses.values()]
         }
