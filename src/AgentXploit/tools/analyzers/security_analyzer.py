@@ -661,25 +661,27 @@ Keep it brief but specific:"""
         risk_assessment: Dict[str, Any]
     ) -> str:
         """Generate a human-readable security summary"""
-        risk_level = risk_assessment["overall_risk"]
+        risk_level = risk_assessment.get("overall_risk", "LOW")
 
         # For LOW risk files, provide minimal summary
         if risk_level == "LOW":
-            total_findings = risk_assessment["total_findings"]
+            total_findings = risk_assessment.get("total_findings", 0)
             if total_findings == 0:
                 return "Security Risk: LOW - No security issues found"
             else:
                 return f"Security Risk: LOW - {total_findings} minor finding(s), no immediate action required"
 
         # For MEDIUM and HIGH risk files, provide detailed summary
-        risk_score = risk_assessment["risk_score"]
+        risk_score = risk_assessment.get("risk_score", 0)
         summary = f"Security Risk: {risk_level} (Score: {risk_score}/100)"
 
-        if risk_assessment["high_findings"] > 0:
-            summary += f"\n- {risk_assessment['high_findings']} high-risk finding(s)"
+        high_findings = risk_assessment.get("high_findings", 0)
+        if high_findings > 0:
+            summary += f"\n- {high_findings} high-risk finding(s)"
 
-        if risk_assessment["medium_findings"] > 0:
-            summary += f"\n- {risk_assessment['medium_findings']} medium-risk finding(s)"
+        medium_findings = risk_assessment.get("medium_findings", 0)
+        if medium_findings > 0:
+            summary += f"\n- {medium_findings} medium-risk finding(s)"
 
         # Highlight specific critical issues
         injection_findings = [f for f in findings if "injection" in f.finding_type.lower()]
@@ -881,15 +883,19 @@ Keep it brief but specific:"""
     
     def _generate_aggregate_summary(self, stats: Dict[str, Any]) -> str:
         """Generate summary for multiple file analysis"""
-        summary = f"Analyzed {stats['high_risk_files'] + stats['medium_risk_files'] + stats['low_risk_files']} files"
-        
-        if stats['high_risk_files'] > 0:
-            summary += f", {stats['high_risk_files']} HIGH risk"
-        if stats['medium_risk_files'] > 0:
-            summary += f", {stats['medium_risk_files']} MEDIUM risk"
-        
-        summary += f"\nTotal findings: {stats['total_findings']}"
-        
+        high_risk = stats.get('high_risk_files', 0)
+        medium_risk = stats.get('medium_risk_files', 0)
+        low_risk = stats.get('low_risk_files', 0)
+
+        summary = f"Analyzed {high_risk + medium_risk + low_risk} files"
+
+        if high_risk > 0:
+            summary += f", {high_risk} HIGH risk"
+        if medium_risk > 0:
+            summary += f", {medium_risk} MEDIUM risk"
+
+        summary += f"\nTotal findings: {stats.get('total_findings', 0)}"
+
         return summary
 
     def analyze_injection_points_for_high_risk_files(self, file_reports: List[Dict[str, Any]], dataflow_analysis: Dict[str, Any] = None) -> Dict[str, Any]:

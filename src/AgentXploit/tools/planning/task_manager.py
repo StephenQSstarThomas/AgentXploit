@@ -73,8 +73,8 @@ Security Findings: {overview['analysis_progress']['security_findings']}
             
         summary += f"""
 === SECURITY STATUS ===
-Total Findings: {security['total_findings']}
-High Risk Files: {security['high_risk_count']} | Medium Risk Files: {security['medium_risk_count']}
+Total Findings: {security.get('total_findings', 0)}
+High Risk Files: {security.get('high_risk_count', 0)} | Medium Risk Files: {security.get('medium_risk_count', 0)}
 
 === RECENT ACTIVITY ===
 """
