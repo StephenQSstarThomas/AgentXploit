@@ -8,6 +8,8 @@
 !src/
 !src/AgentXploit/
 !src/AgentXploit/**
+!example_env.md
+!inject_content/injection_content.txt
 
 # Still ignore common artifacts
 src/AgentXploit/.claude
