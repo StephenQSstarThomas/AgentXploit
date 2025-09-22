@@ -35,19 +35,30 @@ class PromptManager:
             root_unexplored = root_unexplored or []
             exploration_context = exploration_context or "Exploration in progress"
 
-        return f"""FOCUS: {focus.upper()} - Analyze AGENT TOOL IMPLEMENTATIONS and DATAFLOW patterns
+        return f"""FOCUS: {focus.upper()} - Analyze AGENT TOOLS and EXTERNAL DATAFLOW patterns
 STRICT RULE: You MUST ONLY select from the AVAILABLE FILES and SUBDIRECTORIES lists below.
 
-AGENT TOOL KEYWORDS TO PRIORITIZE:
-- agent, tool, action, executor, handler, processor, runner, client, api
-- controller, manager, wrapper, adapter, plugin, extension
-- command, operation, task, job, workflow, pipeline
+CRITICAL TOOL DEFINITION:
+**TOOLS** are components that interact with EXTERNAL DATA SOURCES or USER DIRECT INPUT, such as:
+- Web browsing/scraping tools (like browse_web in gpt-researcher)
+- File system access tools (like fetch_local_reference_file)
+- Database/API clients that fetch external data
+- User input handlers and data processors
+- External service integrators (not internal functions)
 
-DATAFLOW KEYWORDS TO PRIORITIZE:
-- stream, flow, pipe, channel, queue, buffer
-- input, output, parse, transform, validate, sanitize
-- request, response, send, receive, emit, listen
-- read, write, process, handle, execute
+AGENT TOOL KEYWORDS TO PRIORITIZE:
+- browse, fetch, scrape, crawl, download, upload
+- client, api, request, http, web, url, endpoint
+- database, db, query, search, retrieve
+- file, read, write, load, save, import, export
+- user_input, prompt, interactive, interface
+
+EXTERNAL DATAFLOW KEYWORDS TO PRIORITIZE:
+- external, remote, fetch, retrieve, download
+- user_input, stdin, prompt, interactive
+- api_call, http_request, web_request, url_fetch
+- file_read, file_write, database_query
+- source, sink, input_stream, output_stream
 
 AVOID THESE (unless they implement tools):
 - README.md, docs/, documentation/, examples/
@@ -72,8 +83,8 @@ CRITICAL RULES:
 1. Copy-paste EXACT names from the lists above
 2. NEVER add '.py' to directory names
 3. If it's in SUBDIRECTORIES list, it's a directory, NOT a file
-4. Focus on AGENT TOOLS and DATAFLOW for {focus} analysis
-5.**BE EFFICIENT**: Choose targets for tool/dataflow analysis - avoid broad exploration
+4. Focus on EXTERNAL INTERACTION TOOLS and DATAFLOW for {focus} analysis
+5.**BE HIGHLY SELECTIVE**: Only choose files likely to contain actual TOOL IMPLEMENTATIONS that interact with external data sources - avoid internal utility functions
 
 RESPONSE FORMAT (JSON only, using EXACT names from lists):
 {{
@@ -82,10 +93,10 @@ RESPONSE FORMAT (JSON only, using EXACT names from lists):
       "type": "file|directory",
       "path": "EXACT_NAME_FROM_LISTS",
       "priority": "high|medium|low",
-      "reason": "contains agent tool implementation|dataflow processing|external data handling"
+      "reason": "contains EXTERNAL DATA INTERACTION tool|external dataflow processing|user input handling"
     }}
   ],
-  "strategy_explanation": "focusing on agent tool implementations and dataflow patterns for {focus} analysis"
+  "strategy_explanation": "focusing on EXTERNAL DATA INTERACTION tool implementations and external dataflow patterns for {focus} analysis"
 }}"""
 
 
@@ -128,7 +139,7 @@ RESPONSE FORMAT (JSON only, using EXACT names from lists):
                 elif line.strip() and not line.startswith('-') and in_section:
                     break
     
-        return f"""FOCUS: {focus.upper()} - Analyzing file content for AGENT TOOL USE and DATAFLOW vulnerabilities
+        return f"""FOCUS: {focus.upper()} - Analyzing file content for EXTERNAL DATA INTERACTION TOOLS and DATAFLOW vulnerabilities
 Make follow-up decisions using STRICT selection rules based on the history context.
 
 CURRENT FILE: {file_path}
@@ -152,19 +163,19 @@ AVAILABLE DIRECTORIES (YOU MUST SELECT FROM THIS LIST ONLY):
 CRITICAL WARNING: DO NOT CREATE FILE NAMES! DO NOT ADD '.py' TO DIRECTORY NAMES!
 If you see "serialization" in directories, it's a DIRECTORY, not "serialization.py"!
 
-AGENT TOOL & DATAFLOW FOCUS FOR {focus.upper()} ANALYSIS:
-1. PRIORITIZE files/dirs with AGENT TOOLS and DATAFLOW patterns
-2. PRIORITIZE dataflow patterns
-3. AVOID documentation unless they define tool interfaces
-4. AVOID generic files unless they process external data or implement tools
-5. ⚡ **BE HIGHLY SELECTIVE**: Focus on files most likely to contain tool implementations or dataflow logic - avoid extensive reading
+COMPLETE DATAFLOW TRACING FOCUS FOR {focus.upper()} ANALYSIS:
+1. **PRIMARY**: Files/dirs with EXTERNAL DATA INTERACTION TOOLS (web, file, API, database access)
+2. **SECONDARY**: Internal processing functions that are PART OF THE DATAFLOW from external sources to LLM decisions
+3. **DATAFLOW CHAIN**: Trace complete path: External Data Source → Internal Processing → LLM Decision Making
+4. AVOID documentation unless they define external tool interfaces
+5. ⚡ **COMPLETE CHAIN FOCUS**: Analyze files that form the COMPLETE DATAFLOW from external data sources to final LLM processing - include necessary internal functions
 
 FOLLOW-UP STRATEGY FOR {focus.upper()}:
-1. If current file contains tool definitions -> find files that USE these tools
-2. If current file has dataflow patterns -> trace the data path upstream/downstream
-3. If current file processes external input -> find validation/sanitization logic
-4. Focus on completing tool chains and dataflow analysis
-5. Maximum 2 follow-up targets
+1. If current file contains EXTERNAL DATA INTERACTION tools -> find files that USE these tools (internal processing)
+2. If current file has EXTERNAL DATAFLOW patterns -> trace COMPLETE dataflow path to LLM decision making
+3. If current file processes EXTERNAL INPUT -> find downstream processing and LLM integration logic
+4. **COMPLETE CHAIN**: Follow dataflow from external source through internal processing to final LLM decision
+5. Maximum 2 follow-up targets - prioritize COMPLETING THE DATAFLOW CHAIN
 
 ABSOLUTE RULES:
 - You MUST copy-paste EXACT names from AVAILABLE FILES or AVAILABLE DIRECTORIES
@@ -174,10 +185,10 @@ ABSOLUTE RULES:
 Respond in JSON format:
 {{
     "follow_up_targets": [
-        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "high", "reason": "agent tool or dataflow related"}},
-        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "medium", "reason": "agent tool or dataflow related"}}
+        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "high", "reason": "EXTERNAL DATA INTERACTION tool or part of COMPLETE DATAFLOW chain to LLM"}},
+        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "medium", "reason": "Internal processing component in DATAFLOW chain from external source to LLM"}}
     ],
-    "exploration_strategy": "focus on agent tools and dataflow patterns for {focus} analysis, not documentation"
+    "exploration_strategy": "focus on COMPLETE DATAFLOW CHAINS from external data sources through internal processing to final LLM decisions for {focus} analysis"
 }}"""
 
 
@@ -202,10 +213,10 @@ Root directories: {unexplored_root_dirs}
 Subdirectories: {unexplored_subdirs}
 
 STRATEGIC PRIORITIES FOR {focus.upper()} ANALYSIS:
-1. If files with tool definitions found -> explore directories containing tool implementations or consumers
-2. If dataflow patterns identified -> prioritize directories that likely contain related data processing logic
-3. Focus on directories suggesting external interaction
-4. Prioritize directories that are likely to contain tool chains and dataflow patterns
+1. If files with EXTERNAL DATA INTERACTION tool definitions found -> explore directories containing external tool implementations or consumers
+2. If EXTERNAL dataflow patterns identified -> prioritize directories that likely contain related external data processing logic
+3. Focus on directories suggesting external data interaction
+4. Prioritize directories that are likely to contain EXTERNAL DATA INTERACTION tool chains and external dataflow patterns
 5. Avoid: documentation directories unless they contain tool configurations or data samples
 6. **STRATEGIC FOCUS**: Select areas for tool/dataflow discovery - avoid broad exploration
 
@@ -218,12 +229,12 @@ Respond in JSON format:
             "action": "explore_directory",
             "target": "exact_directory_from_unexplored_lists",
             "priority": "high",
-            "reason": "likely contains tool implementations or data processing logic for {focus}",
+            "reason": "likely contains EXTERNAL DATA INTERACTION tool implementations or external data processing logic for {focus}",
             "expected_value": "tool_dataflow_analysis"
         }}
     ],
-    "strategy_explanation": "focus on tool and data processing directories for {focus} analysis",
-    "reasoning": "prioritize areas most likely to contain tool chains and dataflow patterns relevant to {focus}"
+    "strategy_explanation": "focus on EXTERNAL DATA INTERACTION tool and external data processing directories for {focus} analysis",
+    "reasoning": "prioritize areas most likely to contain EXTERNAL DATA INTERACTION tool chains and external dataflow patterns relevant to {focus}"
 }}"""
 
     @staticmethod
@@ -236,8 +247,8 @@ Respond in JSON format:
 {tasks_context}
 
 REASSESSMENT STRATEGY:
-1. If tool definitions found → increase priority of files that implement or consume these tools
-2. If dataflow patterns identified → prioritize upstream sources and downstream processors in the same flow
+1. If EXTERNAL DATA INTERACTION tool definitions found → increase priority of files that implement or consume these external tools
+2. If EXTERNAL dataflow patterns identified → prioritize external upstream sources and external downstream processors in the same flow
 3. If external data sources discovered → prioritize validation, parsing, and processing files
 4. If tool chains partially mapped → prioritize completing the chain analysis
 5. Otherwise → minimal priority changes needed
@@ -253,7 +264,7 @@ Respond in JSON format:
     "priority_updates": {{
         "exact_task_target": new_priority_number
     }},
-    "discovery_based_reasoning": "explain connection to tool/dataflow discoveries"
+    "discovery_based_reasoning": "explain connection to EXTERNAL DATA INTERACTION tool/external dataflow discoveries"
 }}
 
 If no clear connections exist, respond:
@@ -272,8 +283,8 @@ If no clear connections exist, respond:
         
         # Present ALL files to LLM for intelligent selection - no pre-filtering
         
-        return f"""FOCUS: {focus.upper()} - Selecting files for AGENT TOOL IMPLEMENTATION and DATAFLOW analysis.
-Your goal is to find actual code that implements tools, processes data, or manages agent workflows for {focus} analysis.
+        return f"""FOCUS: {focus.upper()} - Selecting files for EXTERNAL DATA INTERACTION TOOL IMPLEMENTATION and DATAFLOW analysis.
+Your goal is to find actual code that implements EXTERNAL DATA INTERACTION tools, processes external data, or manages agent workflows that interact with external data sources for {focus} analysis.
 
 REPOSITORY CONTEXT:
 {context}
@@ -283,23 +294,23 @@ ALL AVAILABLE FILES (make intelligent selections):
 
 CRITICAL SELECTION PRIORITIES FOR {focus.upper()}:
 1. **HIGHEST PRIORITY**: Source code files (.py, .js, .ts) that contain:
-   - Tool implementations (tool, executor, handler, processor, runner)
-   - Agent runtime/engine code (agent, runtime, engine, manager)
-   - Data processing pipelines (pipeline, stream, transform, parse)
-   - API/service clients (client, api, service, request, response)
+   - EXTERNAL DATA INTERACTION tools (web scraping, file access, API clients, database access)
+   - User input handlers (prompt processing, interactive interfaces)
+   - External service integrators (HTTP clients, web browsers, file downloaders)
+   - External data processors (external file readers, remote data fetchers)
 
 2. **STRONGLY AVOID**: 
    - Documentation files UNLESS they contain actual implementations or core information about tools/workflows
    - Configuration files unless they define tools/workflows
    - Test files unless analyzing tool testing
 
-3. **DATAFLOW FOCUS**: Prioritize files likely to show:
-   - How external data enters the system
-   - How data flows between components  
-   - Tool chain implementations
-   - Inter-service communication
+3. **COMPLETE DATAFLOW CHAIN FOCUS**: Prioritize files likely to show:
+   - How EXTERNAL DATA enters the system (APIs, files, user input) - **ENTRY POINTS**
+   - How data flows through internal processing - **PROCESSING CHAIN**
+   - How processed data reaches LLM for decision making - **LLM INTEGRATION**
+   - Complete dataflow validation and transformation pipeline
 
-**EFFICIENCY REQUIREMENT**: Be highly efficient - avoid broad reading patterns. Focus on files most likely to contain actual tool implementations and dataflow logic rather than reading extensively.
+**COMPLETE CHAIN REQUIREMENT**: Analyze files that form the COMPLETE DATAFLOW CHAIN from external data sources to final LLM processing. Include necessary internal processing functions that are part of the dataflow, but prioritize external interaction points.
 
 
 Respond in JSON format:
@@ -308,11 +319,11 @@ Respond in JSON format:
         {{
             "filename": "exact_filename_from_lists_above",
             "priority": "high",
-            "reason": "likely contains tool implementation or data processing logic for {focus}",
-            "analysis_focus": "tool_definition|data_processing|external_interaction"
+            "reason": "likely contains EXTERNAL DATA INTERACTION tool or DATAFLOW CHAIN component (external→internal→LLM) for {focus}",
+            "analysis_focus": "external_data_entry_point|dataflow_processing_chain|llm_integration_point"
         }}
     ],
-    "analysis_strategy": "focus on tool chains and dataflow patterns for {focus} analysis"
+    "analysis_strategy": "focus on COMPLETE DATAFLOW CHAINS from external data sources through internal processing to LLM decision points for {focus} analysis"
 }}"""
 
     @staticmethod
@@ -320,7 +331,7 @@ Respond in JSON format:
         """Focused security analysis prompt for tool use and dataflow analysis"""
         content_sample = content[:1500] + "..." if len(content) > 1500 else content
 
-        return f"""Analyze this code for TOOL USE and DATAFLOW patterns that could lead to injection vulnerabilities.
+        return f"""Analyze this code for EXTERNAL DATA INTERACTION TOOLS and DATAFLOW patterns that could lead to injection vulnerabilities.
 
 FILE: {file_path}
 LANGUAGE: {language}
@@ -328,26 +339,28 @@ LANGUAGE: {language}
 CODE CONTENT:
 {content_sample}
 
-**PRIMARY ANALYSIS FOCUS - Tool Use and Data Flow:**
+**PRIMARY ANALYSIS FOCUS - External Data Interaction Tools and Data Flow:**
 
-1. **TOOL IDENTIFICATION**: What tools/functions does this component provide or use?
-   - LLM interaction functions
-   - File processing tools  
-   - Command execution tools
-   - API/web request tools
-   - Data processing functions
+CRITICAL TOOL DEFINITION: **TOOLS** are components that interact with EXTERNAL DATA SOURCES or USER DIRECT INPUT (like browse_web, fetch_local_reference_file in gpt-researcher).
 
-2. **DATA FLOW MAPPING**: How does data flow through this component?
-   - External input sources (user input, files, APIs, etc.)
-   - Data processing/transformation steps
-   - Output destinations (LLM prompts, tool parameters, files, etc.)
-   - Data validation/sanitization points
+1. **EXTERNAL DATA INTERACTION TOOL IDENTIFICATION**: What external data interaction tools does this component provide or use?
+   - Web browsing/scraping tools (HTTP requests, web crawling)
+   - File system access tools (reading/writing external files)
+   - Database/API clients (external data retrieval)
+   - User input handlers (interactive prompts, user data processing)
+   - External service integrators (third-party API calls)
 
-3. **INJECTION POINT ANALYSIS**: Where in the dataflow could malicious input cause problems?
-   - Input sanitization gaps
-   - Tool parameter construction
-   - LLM prompt building
-   - Command execution points
+2. **COMPLETE DATAFLOW CHAIN MAPPING**: How does data flow from external sources to final LLM processing?
+   - **ENTRY POINTS**: External input sources (user input, external files, remote APIs, web sources)
+   - **PROCESSING CHAIN**: Internal data processing/transformation steps that handle external data
+   - **LLM INTEGRATION**: How processed external data reaches LLM for decision making
+   - **VALIDATION POINTS**: Data validation/sanitization throughout the complete chain
+
+3. **DATAFLOW CHAIN INJECTION ANALYSIS**: Where in the COMPLETE dataflow chain could malicious input cause problems?
+   - External input sanitization gaps at entry points
+   - Internal processing vulnerabilities in the dataflow chain
+   - LLM prompt injection through processed external data
+   - Data poisoning through the complete external→internal→LLM pipeline
 
 Respond in JSON format:
 {{
@@ -355,19 +368,24 @@ Respond in JSON format:
         "identified_tools": [
             {{
                 "tool_name": "specific_tool_or_function_name",
-                "tool_type": "llm_interface|file_processor|command_executor|api_client|data_transformer",
-                "description": "what this tool does",
-                "input_sources": ["where_data_comes_from"],
-                "output_destinations": ["where_data_goes_to"]
+                "tool_type": "web_browser|file_accessor|api_client|database_client|user_input_handler|external_service_integrator",
+                "description": "what this external data interaction tool does",
+                "external_data_sources": ["specific_external_sources_it_accesses"],
+                "external_data_destinations": ["where_external_data_goes"]
             }}
         ],
         "dataflow_patterns": [
             {{
                 "flow_id": "flow_1",
-                "description": "brief description of this data flow",
-                "data_path": "source -> processing_step -> destination",
-                "external_input": "yes|no - can external users influence this flow",
-                "sanitization": "yes|no|partial - is input sanitized",
+                "description": "brief description of this COMPLETE dataflow chain",
+                "data_path": "external_source -> internal_processing -> llm_integration",
+                "external_data_source": "specific external source (web_browse|local_document|user_query_input|api_endpoint|database|environment_variable)",
+                "external_data_source_details": "specific details of the external source (URL, file path, user input field, etc.)",
+                "internal_processing_steps": ["step1", "step2", "step3"],
+                "llm_integration_point": "specific LLM integration method (GPTResearcher|create_chat_completion|prompt_building)",
+                "llm_integration_details": "how exactly data reaches LLM (prompt parameter, context, message content)",
+                "sanitization": "yes|no|partial - is data sanitized throughout the chain",
+                "validation_points": ["where validation occurs in the chain"],
                 "risk_level": "HIGH|MEDIUM|LOW"
             }}
         ]
@@ -376,7 +394,7 @@ Respond in JSON format:
         "potential_injection_points": [
             {{
                 "location": "line_number_or_function_name",
-                "injection_type": "prompt_injection|tool_parameter_injection|command_injection|data_poisoning",
+                "injection_type": "external_data_injection|dataflow_chain_injection|llm_prompt_injection|internal_processing_injection",
                 "severity": "HIGH|MEDIUM|LOW",
                 "description": "specific vulnerability description",
                 "attack_scenario": "how attacker could exploit this",
@@ -385,8 +403,109 @@ Respond in JSON format:
         ],
         "overall_risk": "HIGH|MEDIUM|LOW"
     }},
-    "summary": "Brief summary of tool capabilities and dataflow risks"
+    "summary": "Brief summary of COMPLETE DATAFLOW CHAIN from external data sources through internal processing to LLM integration and associated risks"
 }}"""
+
+    @staticmethod
+    def get_llm_dataflow_analysis_prompt(dataflow_data: Dict) -> str:
+        """Get prompt for LLM-driven comprehensive dataflow analysis"""
+        prompt = f"""Analyze the following dataflow patterns and tools to understand complete data paths from external sources to LLM decisions.
+
+REPOSITORY ANALYSIS CONTEXT:
+- Total dataflows found: {dataflow_data.get('total_dataflows', 0)}
+- Total external data interaction tools: {dataflow_data.get('total_tools', 0)}
+
+CRITICAL TASK: Trace COMPLETE DATAFLOW CHAINS from external data sources through internal processing to final LLM decision points.
+
+DATAFLOW PATTERNS DISCOVERED:
+"""
+        
+        for i, flow in enumerate(dataflow_data.get('dataflows', [])[:15], 1):
+            prompt += f"""
+{i}. File: {flow.get('file', 'unknown')}
+   Flow: {flow.get('flow_id', 'unknown')}
+   Description: {flow.get('description', 'No description')}
+   Data Path: {flow.get('data_path', 'unknown')}
+   External Source: {flow.get('external_data_source', 'unknown')}
+   Risk Level: {flow.get('risk_level', 'UNKNOWN')}
+"""
+
+        prompt += f"""
+EXTERNAL DATA INTERACTION TOOLS DISCOVERED:
+"""
+        
+        for i, tool in enumerate(dataflow_data.get('tools', [])[:20], 1):
+            prompt += f"""
+{i}. File: {tool.get('file', 'unknown')}
+   Tool: {tool.get('tool_name', 'unknown')} ({tool.get('tool_type', 'unknown')})
+   Description: {tool.get('description', 'No description')}
+"""
+
+        prompt += """
+ANALYSIS REQUIREMENTS:
+
+1. **EXTERNAL DATA SOURCE CATEGORIZATION**: Intelligently categorize all external data sources:
+   - web_browse: Web scraping, HTTP requests, browser automation
+   - local_document: File reading, document processing, local file access
+   - user_query_input: User prompts, websocket input, CLI arguments, interactive input
+   - api_endpoint: External API calls, third-party services, remote endpoints
+   - database: Database queries, data retrieval from storage
+   - environment_variable: Configuration from environment variables
+
+2. **COMPLETE DATAFLOW CHAINS**: Identify and trace complete chains:
+   - External Data Source → Internal Processing → LLM Decision
+   - Show how external data flows through multiple files/components
+   - Identify the specific LLM integration points
+
+3. **CROSS-FILE DATAFLOW ANALYSIS**: Analyze dataflow spanning multiple files:
+   - Entry point files (where external data enters the system)
+   - Processing files (internal data transformation and validation)
+   - LLM integration files (where processed data reaches LLM for decisions)
+
+4. **VALIDATION AND RISK ASSESSMENT**: Analyze security implications:
+   - Identify validation gaps in the dataflow chains
+   - Assess injection risks at each step
+   - Provide specific security recommendations
+
+Respond in JSON format:
+{{
+    "external_data_source_categories": {{
+        "web_browse": [{{"file": "file_path", "flow_description": "desc", "data_entry_point": "specific_entry", "tools_involved": ["tool1", "tool2"]}}],
+        "local_document": [...],
+        "user_query_input": [...],
+        "api_endpoint": [...],
+        "database": [...],
+        "environment_variable": [...]
+    }},
+    "complete_dataflow_chains": [
+        {{
+            "chain_id": "unique_id",
+            "external_data_source_category": "category",
+            "external_data_source_details": "specific source details (URL, file path, input field, etc.)",
+            "entry_point_file": "file_where_external_data_enters",
+            "internal_processing_chain": ["file1: processing_step1", "file2: processing_step2"],
+            "llm_integration_file": "file_where_llm_processes_data",
+            "llm_integration_method": "specific_method (GPTResearcher, create_chat_completion, etc.)",
+            "complete_flow_description": "detailed description of the complete external→internal→LLM flow",
+            "validation_points": ["specific_locations_where_validation_occurs"],
+            "risk_level": "HIGH|MEDIUM|LOW",
+            "injection_risk": "specific_injection_risks_in_this_chain"
+        }}
+    ],
+    "cross_file_dataflow_analysis": {{
+        "entry_point_files": [{{"file": "file_path", "external_data_types": ["web", "user_input"], "tools": ["tool1", "tool2"]}}],
+        "processing_files": [{{"file": "file_path", "processing_functions": ["func1", "func2"], "data_transformations": ["transform1", "transform2"]}}],
+        "llm_integration_files": [{{"file": "file_path", "llm_methods": ["method1", "method2"], "integration_points": ["point1", "point2"]}}],
+        "dataflow_completeness_assessment": "detailed_assessment_of_chain_completeness"
+    }},
+    "validation_and_risk_analysis": {{
+        "validation_gaps": [{{"location": "file:function", "missing_validation": "what_validation_is_missing", "risk": "potential_risk"}}],
+        "high_risk_dataflow_chains": [{{"chain_id": "id", "risk_description": "why_high_risk", "attack_scenarios": ["scenario1", "scenario2"]}}],
+        "security_recommendations": ["specific_actionable_security_recommendations"]
+    }}
+}}"""
+        
+        return prompt
 
     @staticmethod
     def get_focus_aware_reassessment_prompt(current_state: Dict, security_findings: List,

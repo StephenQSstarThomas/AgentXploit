@@ -338,6 +338,7 @@ class AnalysisAgent:
             },
 
             "tool_dataflow_analysis": {
+                "llm_driven_dataflow_analysis": self._perform_llm_driven_dataflow_analysis(list(unique_security_findings.values())),
                 "summary": dataflow_summary,
                 "high_risk_dataflow_files": [log.target for log in self.execution_logger.get_high_risk_dataflow_logs()],
                 "tool_chain_completeness": self._assess_tool_chain_completeness(dataflow_summary),
@@ -644,7 +645,7 @@ Respond in JSON format:
         # Use LLM to get priority assessment
         model = LLMClient.get_model("analysis")
         messages = [
-            {"role": "system", "content": "You are an expert code analyst focused on finding agent tool implementations and dataflow patterns. Make autonomous decisions about file priorities based on the current analysis context and focus. Your goal is to identify files that contain actual tool implementations, data processing logic, or agent workflow management code."},
+            {"role": "system", "content": "You are an expert code analyst focused on tracing COMPLETE DATAFLOW CHAINS from external data sources to final LLM processing. Make autonomous decisions about file priorities based on the current analysis context and focus. Your goal is to identify files that form the complete dataflow: External Data Sources → Internal Processing → LLM Integration. Include external data interaction tools AND the internal processing functions that are part of the dataflow chain to LLM decision making."},
             {"role": "user", "content": priority_prompt}
         ]
 
@@ -977,6 +978,122 @@ Respond in JSON format:
             return f"Moderate dataflow coverage - {files_with_flows}/{total_files} files contain dataflow patterns"
         else:
             return f"Limited dataflow coverage - only {files_with_flows}/{total_files} files contain dataflow patterns"
+
+    def _perform_llm_driven_dataflow_analysis(self, security_results: List[Dict]) -> Dict[str, Any]:
+        """Use LLM to analyze and categorize complete dataflow chains from external sources to LLM decisions"""
+        try:
+            # Prepare data for LLM analysis
+            dataflow_data = self._prepare_dataflow_data_for_llm(security_results)
+            
+            if not dataflow_data["has_dataflows"]:
+                return {
+                    "analysis_performed": False,
+                    "reason": "No dataflow patterns found to analyze"
+                }
+            
+            # Create LLM prompt for dataflow analysis
+            dataflow_prompt = PromptManager.get_llm_dataflow_analysis_prompt(dataflow_data)
+            
+            # Get LLM analysis
+            model = LLMClient.get_model("analysis")
+            messages = [
+                {"role": "system", "content": "You are an expert dataflow analyst specializing in tracing complete data paths from external sources through internal processing to final LLM decision points. Analyze the provided dataflow patterns and categorize them intelligently."},
+                {"role": "user", "content": dataflow_prompt}
+            ]
+            
+            analysis_text = LLMClient.call_llm(
+                model=model, messages=messages, max_tokens=2000,
+                temperature=0.3, timeout=45, max_retries=2
+            )
+            
+            if analysis_text:
+                return self._parse_llm_dataflow_analysis(analysis_text)
+            else:
+                return {
+                    "analysis_performed": False,
+                    "reason": "LLM analysis failed"
+                }
+                
+        except Exception as e:
+            return {
+                "analysis_performed": False,
+                "error": f"Dataflow analysis failed: {str(e)}"
+            }
+
+    def _prepare_dataflow_data_for_llm(self, security_results: List[Dict]) -> Dict[str, Any]:
+        """Prepare dataflow data for LLM analysis"""
+        all_dataflows = []
+        all_tools = []
+        
+        for result in security_results:
+            file_path = result["file_path"]
+            agent_analysis = result.get("agent_analysis", {})
+            
+            # Collect dataflow patterns
+            dataflow_patterns = agent_analysis.get("dataflow_patterns", [])
+            for flow in dataflow_patterns:
+                flow_data = {
+                    "file": file_path,
+                    "flow_id": flow.get("flow_id", "unknown"),
+                    "description": flow.get("description", ""),
+                    "data_path": flow.get("data_path", ""),
+                    "risk_level": flow.get("risk_level", "UNKNOWN"),
+                    "sanitization": flow.get("sanitization", "unknown"),
+                    "external_data_source": flow.get("external_data_source", ""),
+                    "internal_processing_steps": flow.get("internal_processing_steps", []),
+                    "llm_integration_point": flow.get("llm_integration_point", ""),
+                    "llm_integration_details": flow.get("llm_integration_details", "")
+                }
+                all_dataflows.append(flow_data)
+            
+            # Collect tools
+            agent_tools = agent_analysis.get("agent_tools", [])
+            for tool in agent_tools:
+                tool_data = {
+                    "file": file_path,
+                    "tool_name": tool.get("tool_name", "unknown"),
+                    "tool_type": tool.get("tool_type", "unknown"),
+                    "description": tool.get("description", ""),
+                    "external_data_sources": tool.get("external_data_sources", []),
+                    "external_data_destinations": tool.get("external_data_destinations", [])
+                }
+                all_tools.append(tool_data)
+        
+        return {
+            "has_dataflows": len(all_dataflows) > 0,
+            "has_tools": len(all_tools) > 0,
+            "total_dataflows": len(all_dataflows),
+            "total_tools": len(all_tools),
+            "dataflows": all_dataflows,
+            "tools": all_tools
+        }
+
+
+    def _parse_llm_dataflow_analysis(self, analysis_text: str) -> Dict[str, Any]:
+        """Parse LLM dataflow analysis response"""
+        try:
+            import json
+            start = analysis_text.find('{')
+            end = analysis_text.rfind('}') + 1
+            if start != -1 and end > start:
+                json_text = analysis_text[start:end]
+                parsed_analysis = json.loads(json_text)
+                
+                # Add metadata
+                parsed_analysis["analysis_performed"] = True
+                parsed_analysis["analysis_method"] = "llm_driven"
+                
+                return parsed_analysis
+            else:
+                return {
+                    "analysis_performed": False,
+                    "error": "Could not parse LLM response as JSON"
+                }
+        except Exception as e:
+            return {
+                "analysis_performed": False,
+                "error": f"Failed to parse LLM analysis: {str(e)}"
+            }
 
     def _perform_injection_point_analysis(self, security_results: List[Dict], dataflow_summary: Dict) -> Dict:
         """Perform specialized injection point analysis for high/medium risk files"""
