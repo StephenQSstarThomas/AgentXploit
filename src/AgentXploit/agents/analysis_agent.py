@@ -615,11 +615,26 @@ Respond in JSON format:
                     "security_summary": security_result.get("summary", ""),
                 })
                 
-                # Generate follow-up tasks based on content analysis
+                # Update focus tracker with findings and related files (MCP agent integration)
+                self._update_focus_tracker_with_findings(task.target, security_result, file_content)
+                
+                # Extract MCP analysis results for decision engine
+                print(f"  [MCP_INTEGRATION] Extracting MCP analysis results for decision engine...")
+                mcp_related_files = self._find_related_files_from_content(file_content, task.target)
+                mcp_config_files = []
+                if task.target.endswith(('.json', '.toml', '.yaml', '.yml', '.ini')):
+                    mcp_config_files = self._find_referenced_files_from_config(file_content, task.target)
+                
+                print(f"  [MCP_INTEGRATION] MCP found {len(mcp_related_files)} related files, {len(mcp_config_files)} config files")
+                
+                # Generate follow-up tasks based on content analysis (including MCP results)
                 self.decision_engine.make_autonomous_decision(
                     "content", self.context_manager, self.task_queue,
                     self.context.get_analyzed_files(), self.context.get_explored_directories(),
-                    file_path=task.target, content=file_content, security_result=security_result, focus=self.dynamic_focus.current_focus
+                    file_path=task.target, content=file_content, security_result=security_result, 
+                    focus=self.dynamic_focus.current_focus,
+                    mcp_related_files=mcp_related_files,  # Pass MCP analysis results
+                    mcp_config_files=mcp_config_files     # Pass MCP config analysis results
                 )
 
     def _assess_file_priorities_with_llm(self, files: List[str], explored_path: str) -> None:
@@ -1465,7 +1480,7 @@ DISCOVERED FILES:
     def _find_related_files_from_content(self, content: str, file_path: str = None) -> List[str]:
         """
         Find files that are imported or referenced in the content.
-        Direct replacement for the original function.
+        Direct replacement for the original function using MCP Language Server.
 
         Args:
             content: File content to analyze
@@ -1474,7 +1489,7 @@ DISCOVERED FILES:
         Returns:
             List of related file paths
         """
-        print(f"  [MCP_ANALYSIS] Starting related files analysis...")
+        print(f"  [MCP_ANALYSIS] Starting MCP-powered related files analysis...")
         if file_path:
             print(f"  [MCP_ANALYSIS] Analyzing file: {file_path}")
 
@@ -1553,17 +1568,13 @@ DISCOVERED FILES:
             print(f"  [MCP_ANALYSIS] Final processed files: {processed_files}")
             return processed_files
 
-        except Exception as e:
-            print(f"  [MCP_ANALYSIS] Error in MCP analysis: {e}")
-            import traceback
-            print(f"  [MCP_ANALYSIS] Traceback: {traceback.format_exc()}")
-            return []
-    
+        except Exception:
+            raise
     
     def _find_referenced_files_from_config(self, content: str, file_path: str = None) -> List[str]:
         """
         Find files referenced in configuration files.
-        Direct replacement for the original function.
+        Direct replacement for the original function using MCP Language Server.
 
         Args:
             content: Configuration file content
@@ -1572,7 +1583,7 @@ DISCOVERED FILES:
         Returns:
             List of referenced file paths
         """
-        print(f"  [MCP_CONFIG] Starting config file analysis...")
+        print(f"  [MCP_CONFIG] Starting MCP-powered config file analysis...")
         if file_path:
             print(f"  [MCP_CONFIG] Analyzing config file: {file_path}")
 
@@ -1665,8 +1676,55 @@ DISCOVERED FILES:
             print(f"  [MCP_CONFIG] Final valid files: {valid_files}")
             return valid_files
 
-        except Exception:
-            raise
+        except Exception as e:
+            print(f"  [MCP_CONFIG] MCP language server not available: {e}")
+            print(f"  [MCP_CONFIG] Falling back to simple config file analysis...")
+            # Fallback to basic pattern matching when MCP is not available
+            return self._fallback_find_config_files(content, file_path)
+
+    def _fallback_find_config_files(self, content: str, file_path: str = None) -> List[str]:
+        """Fallback method for finding config files when MCP is not available"""
+        referenced_files = []
+        
+        try:
+            import json
+            import re
+            # Try to parse as JSON first
+            if content.strip().startswith('{'):
+                config_data = json.loads(content)
+                self._extract_file_paths_from_dict(config_data, referenced_files)
+            else:
+                # For non-JSON files, use pattern matching
+                file_matches = re.findall(r'[\'"]([^\'"]*\.[a-zA-Z]{2,4})[\'"]', content)
+                valid_files = []
+                for match in file_matches:
+                    # Skip version numbers (must contain at least one letter)
+                    if not re.search(r'[a-zA-Z]', match):
+                        continue
+                    # Skip if too short (less than 3 characters before extension)
+                    name_part = match.rsplit('.', 1)[0] if '.' in match else match
+                    if len(name_part) < 3:
+                        continue
+                    # Must contain path indicators or be a reasonable filename
+                    if ('/' in match or '\\' in match or
+                        match.startswith('./') or match.startswith('../') or
+                        len(match) >= 5):  # Reasonable minimum length for a filename
+                        valid_files.append(match)
+                
+                referenced_files.extend(valid_files)
+        except:
+            # Fallback with even more restrictive pattern
+            file_matches = re.findall(r'[\'"]([a-zA-Z0-9_\-]+\.[a-zA-Z]{2,4})[\'"]', content)
+            valid_files = []
+            for match in file_matches:
+                # Additional validation
+                if len(match) >= 5 and not match.replace('.', '').replace('_', '').replace('-', '').isdigit():
+                    valid_files.append(match)
+            
+            referenced_files.extend(valid_files)
+        
+        print(f"  [FALLBACK] Found {len(referenced_files)} config references using pattern matching")
+        return referenced_files[:10]  # Limit to top 10
 
     def _extract_file_paths_from_dict(self, data: Dict, file_list: List[str]) -> None:
         """Recursively extract file paths from nested dictionary"""
@@ -2366,38 +2424,54 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                     
                 print(f"  [FOCUS_UPDATED] {focus_id}: Added {len(findings)} findings, {len(leads)} leads")
             
-            # Check for cross-file references that might create secondary focuses
+            # ALWAYS check for cross-file references using MCP (regardless of risk level)
+            print(f"  [MCP_INTEGRATION] Analyzing file dependencies for: {file_path}")
             related_files = self._find_related_files_from_content(file_content, file_path)
-            if related_files and risk_level in ["high", "medium"]:
-                dependency_focus_id = self.focus_tracker.create_focus(
-                    "dependency",
-                    file_path,
-                    f"Dependencies of {risk_level} risk file",
-                )
-
-                for related_file in related_files[:3]:  # Limit to top 3
-                    lead = {
-                        'path': related_file,
-                        'reason': f'Referenced by {risk_level} risk file {Path(file_path).name}'
-                    }
-                    self.focus_tracker.update_focus(dependency_focus_id, lead=lead)
-
-            # Check for configuration file references
-            if file_path.endswith(('.json', '.toml', '.yaml', '.yml', '.ini')) and risk_level in ["high", "medium"]:
-                config_files = self._find_referenced_files_from_config(file_content, file_path)
-                if config_files:
-                    config_focus_id = self.focus_tracker.create_focus(
-                        "config_dependency",
+            
+            if related_files:
+                print(f"  [MCP_INTEGRATION] Found {len(related_files)} related files via MCP analysis")
+                for rf in related_files[:5]:  # Show first 5
+                    print(f"    → {rf}")
+                
+                # Only create focuses for high/medium risk files
+                if risk_level in ["high", "medium"]:
+                    dependency_focus_id = self.focus_tracker.create_focus(
+                        "dependency",
                         file_path,
-                        f"Files referenced in {risk_level} risk config file",
+                        f"Dependencies of {risk_level} risk file",
                     )
 
-                    for config_file in config_files[:3]:  # Limit to top 3
+                    for related_file in related_files[:3]:  # Limit to top 3
                         lead = {
-                            'path': config_file,
-                            'reason': f'Referenced in {risk_level} risk config file {Path(file_path).name}'
+                            'path': related_file,
+                            'reason': f'Referenced by {risk_level} risk file {Path(file_path).name}'
                         }
-                        self.focus_tracker.update_focus(config_focus_id, lead=lead)
+                        self.focus_tracker.update_focus(dependency_focus_id, lead=lead)
+
+            # ALWAYS check for configuration file references using MCP (regardless of risk level)
+            if file_path.endswith(('.json', '.toml', '.yaml', '.yml', '.ini')):
+                print(f"  [MCP_INTEGRATION] Analyzing config file references for: {file_path}")
+                config_files = self._find_referenced_files_from_config(file_content, file_path)
+                
+                if config_files:
+                    print(f"  [MCP_INTEGRATION] Found {len(config_files)} referenced files via MCP config analysis")
+                    for cf in config_files[:5]:  # Show first 5
+                        print(f"    → {cf}")
+                    
+                    # Only create focuses for high/medium risk files
+                    if risk_level in ["high", "medium"]:
+                        config_focus_id = self.focus_tracker.create_focus(
+                            "config_dependency",
+                            file_path,
+                            f"Files referenced in {risk_level} risk config file",
+                        )
+
+                        for config_file in config_files[:3]:  # Limit to top 3
+                            lead = {
+                                'path': config_file,
+                                'reason': f'Referenced in {risk_level} risk config file {Path(file_path).name}'
+                            }
+                            self.focus_tracker.update_focus(config_focus_id, lead=lead)
         
         except Exception as e:
             print(f"  [ERROR] Failed to update focus tracker: {e}")

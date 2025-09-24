@@ -15,6 +15,7 @@ from mcp import StdioServerParameters
 import asyncio
 from google.adk.runners import InMemoryRunner
 from google.genai.types import Part, UserContent
+from google.adk.models.lite_llm import LiteLlm
 
 # Load environment variables
 load_dotenv()
@@ -27,7 +28,7 @@ class LanguageServerRunner:
         """Initialize the Language Server Runner with .env configuration"""
         # Read configuration from environment
         self.lsp_server = os.getenv("LSP_SERVER_TYPE", "pyright-langserver")
-        self.model = os.getenv("MCP_AGENT_MODEL", "openai/gpt-4.1-2025-04-14")
+        self.model_name = os.getenv("MCP_AGENT_MODEL", "openai/gpt-4.1-2025-04-14")
 
         # Use current working directory as default workspace
         self.default_workspace = os.getcwd()
@@ -38,7 +39,7 @@ class LanguageServerRunner:
     def _create_agent(self) -> LlmAgent:
         """Create the MCP Language Server Agent"""
         return LlmAgent(
-            model=self.model,
+            model=LiteLlm(model=self.model_name),
             name="language_server_agent",
             instruction="""You are a code analysis assistant using Language Server Protocol.
             Analyze code dependencies and file relationships accurately.
@@ -66,9 +67,31 @@ class LanguageServerRunner:
             # Create runner and session
             runner = InMemoryRunner(agent=self.agent)
 
-            # Run the agent asynchronously
-            result = asyncio.run(self._run_async_helper(runner, prompt))
-            return result
+            # Run the agent asynchronously - handle existing event loop properly
+            try:
+                # Check if we're already in an event loop
+                asyncio.get_running_loop()
+                # We're in an event loop, use thread-based execution
+                import concurrent.futures
+                
+                def run_in_thread():
+                    # Create new event loop for this thread
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(self._run_async_helper(runner, prompt))
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_in_thread)
+                    result = future.result(timeout=60)  # 60 second timeout
+                    return result
+                    
+            except RuntimeError:
+                # No running event loop, safe to use asyncio.run()
+                result = asyncio.run(self._run_async_helper(runner, prompt))
+                return result
 
         except Exception:
             raise

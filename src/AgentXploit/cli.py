@@ -174,6 +174,7 @@ async def execute_command(args: argparse.Namespace) -> int:
                 return 0
 
             except Exception as e:
+                raise
                 logging.error(f"Static analysis failed: {e}")
                 return 1
 
@@ -182,6 +183,7 @@ async def execute_command(args: argparse.Namespace) -> int:
             return 1
 
     except Exception as e:
+        raise
         logging.error(f"Error executing command: {e}")
         if args.verbose:
             logging.exception("Full error details:")
