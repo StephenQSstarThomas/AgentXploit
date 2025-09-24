@@ -15,9 +15,10 @@
 from .root_agent import build_root_agent
 from .analysis_agent import build_analysis_agent
 from .exploit_agent import build_exploit_agent
-
+from .mcp_agent import get_runner
 __all__ = [
     'build_root_agent',
     'build_analysis_agent',
-    'build_exploit_agent'
+    'build_exploit_agent',
+    'get_runner',
 ]

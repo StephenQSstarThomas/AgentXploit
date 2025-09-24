@@ -31,6 +31,7 @@ from .dynamic_focus_manager import DynamicFocusManager
 # Import LLM client from core module
 from ..tools.core.llm_client import LLMClient
 from ..tools.core.history_compactor import HistoryCompactor
+from .mcp_agent import get_runner
 
 
 def serialize_for_json(obj):
@@ -1393,74 +1394,279 @@ DISCOVERED FILES:
 
         print(f"  [SUCCESS] Added {executed_count} strategic tasks")
 
-    def _find_related_files_from_content(self, content: str) -> List[str]:
-        """Find files that are imported or referenced in the content"""
-        related_files = []
+    # def _find_related_files_from_content(self, content: str) -> List[str]:
+    #     """Find files that are imported or referenced in the content"""
+    #     related_files = []
 
-        # Python import patterns
-        if 'import ' in content or 'from ' in content:
-            import_matches = re.findall(r'(?:import|from)\s+([a-zA-Z0-9_.]+)', content)
-            for match in import_matches:
-                # Convert module name to potential file path
-                file_candidate = match.replace('.', '/') + '.py'
-                if '/' in file_candidate:
-                    related_files.append(file_candidate)
+    #     # Python import patterns
+    #     if 'import ' in content or 'from ' in content:
+    #         import_matches = re.findall(r'(?:import|from)\s+([a-zA-Z0-9_.]+)', content)
+    #         for match in import_matches:
+    #             # Convert module name to potential file path
+    #             file_candidate = match.replace('.', '/') + '.py'
+    #             if '/' in file_candidate:
+    #                 related_files.append(file_candidate)
 
-        # JavaScript/TypeScript import patterns
-        js_import_patterns = [
-            r'import\s+.*?\s+from\s+[\'"]([^\'"]+)[\'"]',
-            r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)'
-        ]
+    #     # JavaScript/TypeScript import patterns
+    #     js_import_patterns = [
+    #         r'import\s+.*?\s+from\s+[\'"]([^\'"]+)[\'"]',
+    #         r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)'
+    #     ]
 
-        for pattern in js_import_patterns:
-            matches = re.findall(pattern, content)
-            for match in matches:
-                if match.endswith(('.js', '.ts', '.json')):
-                    related_files.append(match)
+    #     for pattern in js_import_patterns:
+    #         matches = re.findall(pattern, content)
+    #         for match in matches:
+    #             if match.endswith(('.js', '.ts', '.json')):
+    #                 related_files.append(match)
 
-        return related_files  # Return all related files
+    #     return related_files  # Return all related files
 
-    def _find_referenced_files_from_config(self, content: str) -> List[str]:
-        """Find files referenced in configuration files"""
-        referenced_files = []
+    # def _find_referenced_files_from_config(self, content: str) -> List[str]:
+    #     """Find files referenced in configuration files"""
+    #     referenced_files = []
+
+    #     try:
+    #         # Try to parse as JSON first
+    #         if content.strip().startswith('{'):
+    #             config_data = json.loads(content)
+    #             self._extract_file_paths_from_dict(config_data, referenced_files)
+    #         else:
+    #             # For non-JSON files, use more restrictive pattern matching
+    #             # Only match strings that look like actual file paths
+    #             file_matches = re.findall(r'[\'"]([^\'"]*\.[a-zA-Z]{2,4})[\'"]', content)
+    #             valid_files = []
+    #             for match in file_matches:
+    #                 # Skip version numbers (must contain at least one letter)
+    #                 if not re.search(r'[a-zA-Z]', match):
+    #                     continue
+    #                 # Skip if too short (less than 3 characters before extension)
+    #                 name_part = match.rsplit('.', 1)[0] if '.' in match else match
+    #                 if len(name_part) < 3:
+    #                     continue
+    #                 # Must contain path indicators or be a reasonable filename
+    #                 if ('/' in match or '\\' in match or
+    #                     match.startswith('./') or match.startswith('../') or
+    #                     len(match) >= 5):  # Reasonable minimum length for a filename
+    #                     valid_files.append(match)
+
+    #             referenced_files.extend(valid_files)
+    #     except:
+    #         # Fallback with even more restrictive pattern
+    #         file_matches = re.findall(r'[\'"]([a-zA-Z0-9_\-]+\.[a-zA-Z]{2,4})[\'"]', content)
+    #         valid_files = []
+    #         for match in file_matches:
+    #             # Additional validation
+    #             if len(match) >= 5 and not match.replace('.', '').replace('_', '').replace('-', '').isdigit():
+    #                 valid_files.append(match)
+
+    #         referenced_files.extend(valid_files)
+
+    #     return referenced_files
+    def _find_related_files_from_content(self, content: str, file_path: str = None) -> List[str]:
+        """
+        Find files that are imported or referenced in the content.
+        Direct replacement for the original function.
+
+        Args:
+            content: File content to analyze
+            file_path: Optional path to the current file being analyzed (for relative path resolution)
+
+        Returns:
+            List of related file paths
+        """
+        print(f"  [MCP_ANALYSIS] Starting related files analysis...")
+        if file_path:
+            print(f"  [MCP_ANALYSIS] Analyzing file: {file_path}")
 
         try:
-            # Try to parse as JSON first
-            if content.strip().startswith('{'):
-                config_data = json.loads(content)
-                self._extract_file_paths_from_dict(config_data, referenced_files)
-            else:
-                # For non-JSON files, use more restrictive pattern matching
-                # Only match strings that look like actual file paths
-                file_matches = re.findall(r'[\'"]([^\'"]*\.[a-zA-Z]{2,4})[\'"]', content)
-                valid_files = []
-                for match in file_matches:
-                    # Skip version numbers (must contain at least one letter)
-                    if not re.search(r'[a-zA-Z]', match):
-                        continue
-                    # Skip if too short (less than 3 characters before extension)
-                    name_part = match.rsplit('.', 1)[0] if '.' in match else match
-                    if len(name_part) < 3:
-                        continue
-                    # Must contain path indicators or be a reasonable filename
-                    if ('/' in match or '\\' in match or
-                        match.startswith('./') or match.startswith('../') or
-                        len(match) >= 5):  # Reasonable minimum length for a filename
-                        valid_files.append(match)
+            runner = get_runner()
 
-                referenced_files.extend(valid_files)
-        except:
-            # Fallback with even more restrictive pattern
-            file_matches = re.findall(r'[\'"]([a-zA-Z0-9_\-]+\.[a-zA-Z]{2,4})[\'"]', content)
+            # Detect the file type from content
+            file_type = "unknown"
+            if 'import ' in content and 'from ' in content and ':' in content:
+                file_type = "python"
+            elif 'import ' in content or 'require(' in content:
+                file_type = "javascript"
+
+            print(f"  [MCP_ANALYSIS] Detected file type: {file_type}")
+
+            prompt = f"""
+            Analyze this {file_type} code content and find all files it imports or depends on.
+
+            Code content:
+            ```
+            {content[:5000]}  # Limit to first 5000 chars to avoid token limits
+            ```
+
+            Look for:
+            - Import statements (static and dynamic)
+            - From imports (Python)
+            - Require statements (JavaScript)
+            - Type imports
+            - Relative imports like './file' or '../file'
+
+            For Python: Convert module names to file paths (e.g., 'utils.helper' -> 'utils/helper.py')
+            For JavaScript: Include the actual file paths with extensions
+
+            Return ONLY a JSON array of file paths with their extensions.
+            Example: ["utils/helper.py", "models/user.js", "types/index.ts"]
+
+            Rules:
+            - Include file extensions
+            - Use forward slashes for paths
+            - For relative imports, keep them as relative paths
+            - Do not include external packages
+            - Return empty array [] if no imports found
+            """
+
+            print(f"  [MCP_ANALYSIS] Running MCP agent analysis...")
+            response = runner.run(prompt)
+            print(f"  [MCP_ANALYSIS] MCP raw response: {response[:200]}...")
+
+            files = runner.extract_file_list(response)
+            print(f"  [MCP_ANALYSIS] Extracted files: {files}")
+
+            # Post-process to match original function behavior and handle relative paths
+            processed_files = []
+            base_dir = str(Path(file_path).parent) if file_path else ""
+
+            for file in files:
+                processed_file = file
+
+                # Handle relative paths
+                if file.startswith('./') or file.startswith('../'):
+                    if file_path:
+                        # Resolve relative path relative to the current file's directory
+                        try:
+                            resolved_path = Path(base_dir) / file
+                            processed_file = str(resolved_path.resolve().relative_to(self.repo_path))
+                            print(f"  [MCP_ANALYSIS] Resolved relative path: {file} -> {processed_file}")
+                        except Exception as e:
+                            print(f"  [MCP_ANALYSIS] Failed to resolve relative path {file}: {e}")
+                            processed_file = file
+
+                # Ensure we only include files with paths (containing /) or files with extensions
+                if '/' in processed_file or processed_file.endswith(('.py', '.js', '.ts', '.json', '.tsx', '.jsx')):
+                    processed_files.append(processed_file)
+                    print(f"  [MCP_ANALYSIS] Added processed file: {processed_file}")
+
+            print(f"  [MCP_ANALYSIS] Final processed files: {processed_files}")
+            return processed_files
+
+        except Exception as e:
+            print(f"  [MCP_ANALYSIS] Error in MCP analysis: {e}")
+            import traceback
+            print(f"  [MCP_ANALYSIS] Traceback: {traceback.format_exc()}")
+            return []
+    
+    
+    def _find_referenced_files_from_config(self, content: str, file_path: str = None) -> List[str]:
+        """
+        Find files referenced in configuration files.
+        Direct replacement for the original function.
+
+        Args:
+            content: Configuration file content
+            file_path: Optional path to the current file being analyzed
+
+        Returns:
+            List of referenced file paths
+        """
+        print(f"  [MCP_CONFIG] Starting config file analysis...")
+        if file_path:
+            print(f"  [MCP_CONFIG] Analyzing config file: {file_path}")
+
+        try:
+            runner = get_runner()
+
+            # Detect config type from content
+            config_type = "generic configuration"
+            if '"scripts"' in content and '"dependencies"' in content:
+                config_type = "package.json"
+            elif '[tool.poetry]' in content or '[build-system]' in content:
+                config_type = "pyproject.toml"
+            elif content.strip().startswith('{'):
+                config_type = "JSON configuration"
+
+            print(f"  [MCP_CONFIG] Detected config type: {config_type}")
+        
+            prompt = f"""
+            Analyze this {config_type} file content and find all local files it references.
+
+            Configuration content:
+            ```
+            {content[:5000]}  # Limit to first 5000 chars
+            ```
+
+            Look for:
+            - Entry points and main files
+            - Script file paths
+            - Build input/output files
+            - Asset files
+            - Test files
+            - Any file paths in strings
+
+            Return ONLY a JSON array of file paths that look like actual project files.
+            Example: ["src/index.js", "dist/bundle.js", "config/settings.json"]
+
+            Rules:
+            - Only include paths with file extensions
+            - Must be at least 5 characters long (like original function)
+            - Skip version numbers (must contain letters)
+            - Use forward slashes
+            - Return empty array [] if no files found
+            """
+
+            print(f"  [MCP_CONFIG] Running MCP config analysis...")
+            response = runner.run(prompt)
+            print(f"  [MCP_CONFIG] MCP raw response: {response[:200]}...")
+
+            files = runner.extract_file_list(response)
+            print(f"  [MCP_CONFIG] Extracted files: {files}")
+
+            # Filter to match original function validation rules
             valid_files = []
-            for match in file_matches:
-                # Additional validation
-                if len(match) >= 5 and not match.replace('.', '').replace('_', '').replace('-', '').isdigit():
-                    valid_files.append(match)
+            base_dir = str(Path(file_path).parent) if file_path else ""
 
-            referenced_files.extend(valid_files)
+            for file in files:
+                processed_file = file
 
-        return referenced_files
+                # Handle relative paths
+                if file.startswith('./') or file.startswith('../'):
+                    if file_path:
+                        try:
+                            resolved_path = Path(base_dir) / file
+                            processed_file = str(resolved_path.resolve().relative_to(self.repo_path))
+                            print(f"  [MCP_CONFIG] Resolved relative path: {file} -> {processed_file}")
+                        except Exception as e:
+                            print(f"  [MCP_CONFIG] Failed to resolve relative path {file}: {e}")
+                            processed_file = file
+
+                # Skip if too short
+                if len(processed_file) < 5:
+                    continue
+
+                # Must have an extension
+                if '.' not in processed_file:
+                    continue
+
+                # Get the name part before extension
+                name_part = processed_file.rsplit('.', 1)[0]
+                if len(name_part) < 3:
+                    continue
+
+                # Must contain at least one letter (skip pure numbers/versions)
+                if not re.search(r'[a-zA-Z]', processed_file):
+                    continue
+
+                valid_files.append(processed_file)
+                print(f"  [MCP_CONFIG] Added valid config file: {processed_file}")
+
+            print(f"  [MCP_CONFIG] Final valid files: {valid_files}")
+            return valid_files
+
+        except Exception:
+            raise
 
     def _extract_file_paths_from_dict(self, data: Dict, file_list: List[str]) -> None:
         """Recursively extract file paths from nested dictionary"""
@@ -2161,20 +2367,37 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                 print(f"  [FOCUS_UPDATED] {focus_id}: Added {len(findings)} findings, {len(leads)} leads")
             
             # Check for cross-file references that might create secondary focuses
-            related_files = self._find_related_files_from_content(file_content)
+            related_files = self._find_related_files_from_content(file_content, file_path)
             if related_files and risk_level in ["high", "medium"]:
                 dependency_focus_id = self.focus_tracker.create_focus(
                     "dependency",
                     file_path,
                     f"Dependencies of {risk_level} risk file",
                 )
-                
+
                 for related_file in related_files[:3]:  # Limit to top 3
                     lead = {
                         'path': related_file,
                         'reason': f'Referenced by {risk_level} risk file {Path(file_path).name}'
                     }
                     self.focus_tracker.update_focus(dependency_focus_id, lead=lead)
+
+            # Check for configuration file references
+            if file_path.endswith(('.json', '.toml', '.yaml', '.yml', '.ini')) and risk_level in ["high", "medium"]:
+                config_files = self._find_referenced_files_from_config(file_content, file_path)
+                if config_files:
+                    config_focus_id = self.focus_tracker.create_focus(
+                        "config_dependency",
+                        file_path,
+                        f"Files referenced in {risk_level} risk config file",
+                    )
+
+                    for config_file in config_files[:3]:  # Limit to top 3
+                        lead = {
+                            'path': config_file,
+                            'reason': f'Referenced in {risk_level} risk config file {Path(file_path).name}'
+                        }
+                        self.focus_tracker.update_focus(config_focus_id, lead=lead)
         
         except Exception as e:
             print(f"  [ERROR] Failed to update focus tracker: {e}")
