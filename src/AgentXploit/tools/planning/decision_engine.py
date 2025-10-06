@@ -62,7 +62,7 @@ class DecisionEngine:
             elif decision_type == "content":
                 result = self._handle_content_decision(
                     history_context, task_queue, kwargs.get('file_path'), 
-                    kwargs.get('content'), kwargs.get('security_result', {}), focus
+                    kwargs.get('content'), kwargs.get('security_result', {}), focus, **kwargs
                 )
                 decision_result.update(result)
                 
@@ -172,14 +172,37 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
         return result
     
     def _handle_content_decision(self, history_context: str, task_queue, file_path: str, 
-                               content: str, security_result: Dict, focus: str = "security") -> Dict[str, Any]:
+                               content: str, security_result: Dict, focus: str = "security", **kwargs) -> Dict[str, Any]:
         """Handle content-based autonomous decisions with enhanced prompts"""
         result = {"decisions_made": 0, "tasks_added": 0, "decision_details": []}
         
         from ..prompt_manager import PromptManager
         
+        # Extract MCP recommendations from kwargs
+        mcp_related_files = kwargs.get('mcp_related_files', [])
+        mcp_config_files = kwargs.get('mcp_config_files', [])
+        
+        print(f"  [DECISION_ENGINE] Processing MCP recommendations: {len(mcp_related_files)} related, {len(mcp_config_files)} config")
+        
+        # Immediately add MCP recommended files with HIGH priority
+        mcp_tasks_added = self._add_mcp_recommended_files(task_queue, mcp_related_files, mcp_config_files, file_path)
+        if mcp_tasks_added > 0:
+            result["tasks_added"] += mcp_tasks_added
+            result["decisions_made"] += 1
+            result["decision_details"].append({
+                "type": "MCP_RECOMMENDATIONS",
+                "path": f"{len(mcp_related_files + mcp_config_files)} files",
+                "reason": f"MCP Language Server analysis from {Path(file_path).name}",
+                "priority": "highest"
+            })
+            print(f"  [MCP_PRIORITY] Added {mcp_tasks_added} MCP recommended files with HIGHEST priority")
+        
         # Build context with available files from current directory  
         context = self._build_content_decision_context(file_path, content, security_result)
+        
+        # Add MCP recommendations to context
+        context['mcp_related_files'] = mcp_related_files
+        context['mcp_config_files'] = mcp_config_files
         
         # Get available files from multiple relevant directories for content follow-up
         current_dir = str(Path(file_path).parent) if "/" in file_path else "."
@@ -256,6 +279,43 @@ EXPLORED DIRECTORIES (DO NOT RE-EXPLORE):
             result.update(execution_result)
         
         return result
+
+    def _add_mcp_recommended_files(self, task_queue, related_files: List[str], config_files: List[str], source_file: str) -> int:
+        """Add MCP recommended files to task queue with highest priority"""
+        from ..core.task import Task, TaskType, PRIORITY_MAPPING
+        
+        tasks_added = 0
+        all_recommended = related_files + config_files
+        
+        # Use HIGHEST priority for MCP recommendations (they are LSP-verified dependencies)
+        mcp_priority = 98  # Very high priority, just below initial exploration
+        
+        for recommended_file in all_recommended:
+            # Validate file exists and hasn't been analyzed
+            full_path = Path(self.repo_path) / recommended_file
+            
+            try:
+                if full_path.exists() and full_path.is_file():
+                    # Check if already analyzed or in queue
+                    existing_targets = {task.target for task in task_queue.get_pending_tasks()}
+                    if recommended_file not in existing_targets:
+                        task = Task(type=TaskType.READ, target=recommended_file, priority=mcp_priority)
+                        task_queue.add_task(task)
+                        tasks_added += 1
+                        
+                        # Determine recommendation type
+                        rec_type = "config reference" if recommended_file in config_files else "code dependency"
+                        print(f"    [MCP_PRIORITY] {recommended_file} (priority: {mcp_priority}) - {rec_type} from {Path(source_file).name}")
+                    else:
+                        print(f"    [MCP_SKIP] {recommended_file} already in queue")
+                else:
+                    print(f"    [MCP_SKIP] {recommended_file} does not exist")
+                    
+            except Exception as e:
+                print(f"    [MCP_ERROR] Failed to validate {recommended_file}: {e}")
+                continue
+        
+        return tasks_added
 
     def _build_exploration_decision_context(self, explored_path: str, files: List[str], dirs: List[str]) -> Dict:
         """Build context for exploration decisions"""

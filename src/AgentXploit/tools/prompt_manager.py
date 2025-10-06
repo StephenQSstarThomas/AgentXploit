@@ -102,13 +102,17 @@ RESPONSE FORMAT (JSON only, using EXACT names from lists):
 
     @staticmethod
     def get_content_decision_prompt(history_context: str, context: Dict, focus: str = "security") -> str:
-        """Strict content decision prompt with available-file filtering"""
+        """Strict content decision prompt with available-file filtering and MCP recommendations"""
     
         file_path = context.get('file_path', '')
         content = context.get('content', '')
         security_result = context.get('security_result', {})
         available_files = context.get('available_files', [])
         available_dirs = context.get('available_dirs', [])
+        
+        # Extract MCP recommendations (highest priority)
+        mcp_related_files = context.get('mcp_related_files', [])
+        mcp_config_files = context.get('mcp_config_files', [])
     
         # Extract imports and references (only used as hints, not direct selection)
         imports_found = []
@@ -154,6 +158,11 @@ ALREADY ANALYZED FILES (DO NOT suggest these):
 IMPORT/REFERENCE HINTS (for prioritization only, do not invent new paths):
 {chr(10).join([f"- {imp}" for imp in imports_found])}
 
+MCP LANGUAGE SERVER RECOMMENDATIONS (HIGHEST PRIORITY - these are LSP-verified dependencies):
+{chr(10).join([f"- {mcp_file} (MCP verified dependency)" for mcp_file in mcp_related_files])}
+{chr(10).join([f"- {mcp_file} (MCP verified config reference)" for mcp_file in mcp_config_files])}
+{"No MCP recommendations available" if not (mcp_related_files or mcp_config_files) else ""}
+
 AVAILABLE FILES (YOU MUST SELECT FROM THIS LIST ONLY):
 {chr(10).join([f"- {f}" for f in available_files])}
 
@@ -168,14 +177,15 @@ COMPLETE DATAFLOW TRACING FOCUS FOR {focus.upper()} ANALYSIS:
 2. **SECONDARY**: Internal processing functions that are PART OF THE DATAFLOW from external sources to LLM decisions
 3. **DATAFLOW CHAIN**: Trace complete path: External Data Source → Internal Processing → LLM Decision Making
 4. AVOID documentation unless they define external tool interfaces
-5. ⚡ **COMPLETE CHAIN FOCUS**: Analyze files that form the COMPLETE DATAFLOW from external data sources to final LLM processing - include necessary internal functions
+5. **COMPLETE CHAIN FOCUS**: Analyze files that form the COMPLETE DATAFLOW from external data sources to final LLM processing - include necessary internal functions
 
-FOLLOW-UP STRATEGY FOR {focus.upper()}:
-1. If current file contains EXTERNAL DATA INTERACTION tools -> find files that USE these tools (internal processing)
-2. If current file has EXTERNAL DATAFLOW patterns -> trace COMPLETE dataflow path to LLM decision making
-3. If current file processes EXTERNAL INPUT -> find downstream processing and LLM integration logic
-4. **COMPLETE CHAIN**: Follow dataflow from external source through internal processing to final LLM decision
-5. Maximum 2 follow-up targets - prioritize COMPLETING THE DATAFLOW CHAIN
+FOLLOW-UP STRATEGY FOR {focus.upper()} (in order of priority):
+1. **FIRST PRIORITY**: MCP Language Server recommendations (if available) - these are verified dependencies
+2. If current file contains EXTERNAL DATA INTERACTION tools -> find files that USE these tools (internal processing)
+3. If current file has EXTERNAL DATAFLOW patterns -> trace COMPLETE dataflow path to LLM decision making
+4. If current file processes EXTERNAL INPUT -> find downstream processing and LLM integration logic
+5. **COMPLETE CHAIN**: Follow dataflow from external source through internal processing to final LLM decision
+6. Maximum 2 follow-up targets - prioritize MCP recommendations first, then COMPLETING THE DATAFLOW CHAIN
 
 ABSOLUTE RULES:
 - You MUST copy-paste EXACT names from AVAILABLE FILES or AVAILABLE DIRECTORIES
@@ -185,6 +195,7 @@ ABSOLUTE RULES:
 Respond in JSON format:
 {{
     "follow_up_targets": [
+        {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "highest", "reason": "🔥 MCP Language Server verified dependency - PRIORITY"}},
         {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "high", "reason": "EXTERNAL DATA INTERACTION tool or part of COMPLETE DATAFLOW chain to LLM"}},
         {{"path": "EXACT_NAME_FROM_AVAILABLE_LISTS", "type": "file|directory", "priority": "medium", "reason": "Internal processing component in DATAFLOW chain from external source to LLM"}}
     ],

@@ -199,18 +199,17 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
 
         logging.info(f"Starting dynamic analysis for: {args.repository}")
 
-        print("\nAgentXploit Dynamic Analysis")
+        print("\nAgentXploit Unified Workflow Analysis")
         print("=" * 40)
-        print("Intelligent Docker Setup Process:")
-        print("1. LLM analyzes README for Docker images")
-        print("2. Auto-detects Python version from pyproject/requirements")
-        print("3. Creates appropriate Docker environment")
-        print("4. Runs pip install for dependencies")
-        print("5. Performs LLM-driven injection point analysis")
+        print("4-Phase Workflow:")
+        print("  Phase 1: Docker Setup (from .env)")
+        print("  Phase 2: Run Agent (no injection)")
+        print("  Phase 3: Generate Injection")
+        print("  Phase 4: Rerun with Injection")
         print("=" * 40)
 
-        # Import the exploit agent for interactive analysis
-        from .agents.exploit_agent import execute_interactive_analysis, setup_analysis_environment
+        # Import the unified workflow system
+        from .agents.exploit_agent import execute_workflow_analysis
 
         # Configuration
         target_path = args.repository
@@ -220,72 +219,48 @@ async def execute_dynamic_command(args: argparse.Namespace) -> int:
 
         print(f"\nConfiguration:")
         print(f"  Target path: {target_path}")
-        print(f"  Mode: Intelligent LLM-driven setup")
+        print(f"  Mode: Unified 4-Phase Workflow")
         print(f"  Timeout: {args.timeout} seconds")
         print(f"  Live output: {'Enabled' if live_output else 'Disabled'}")
 
         # Handle dry-run mode
         if args.dry_run:
-            print("\n[DRY RUN] Would proceed with intelligent dynamic analysis")
+            print("\n[DRY RUN] Would proceed with unified workflow analysis")
             return 0
 
-        print(f"\nAutomatically starting intelligent environment setup...")
+        print(f"\nStarting workflow execution...")
 
-        # Step 1: Setup intelligent Docker environment
-        env_result = await setup_analysis_environment(
+        # Execute unified workflow (auto-detects workflow type from path)
+        result = await execute_workflow_analysis(
             target_path=target_path,
-            require_confirmation=True,  # User confirmation for Docker
-            llm_client=None  # Will use agent's internal LLM
-        )
-
-        if not env_result['success']:
-            if env_result.get('cancelled'):
-                print("Environment setup cancelled by user.")
-                return 0
-            else:
-                print(f"Environment setup failed: {env_result.get('error', 'Unknown error')}")
-                return 1
-
-        print(f"✓ Environment ready: {env_result['setup_type']}")
-        if 'docker_image' in env_result:
-            print(f"✓ Docker image: {env_result['docker_image']}")
-        if 'dependencies_installed' in env_result:
-            print(f"✓ Dependencies installed: {env_result['dependencies_installed']}")
-
-        print(f"\nStarting interactive injection analysis...")
-
-        # Step 2: Execute interactive analysis with existing deployment
-        deployment_id = env_result.get('deployment_id')
-        logger.info(f"Using existing deployment for analysis: {deployment_id}")
-
-        result = await execute_interactive_analysis(
-            target_path=target_path,
-            require_user_input=True,
-            existing_deployment_id=deployment_id,
-            timeout=args.timeout,
-            live_output=live_output
+            workflow_type="auto",
+            timeout=args.timeout
         )
 
         # Display results
         if result["success"]:
-            print(f"\n✓ LLM-driven dynamic analysis completed successfully!")
+            print(f"\n✓ Unified workflow completed successfully!")
             print(f"\nExecution Summary:")
-            print(f"  - Analysis type: {result.get('analysis_type', 'LLM-driven')}")
+            print(f"  - Workflow ID: {result.get('workflow_id', 'N/A')}")
+            print(f"  - Workflow type: {result.get('workflow_type', 'auto')}")
             print(f"  - Target path: {result['target_path']}")
+            print(f"  - Deployment ID: {result.get('deployment_id', 'N/A')}")
 
-            # Injection points found
-            injection_points = result.get('injection_points', [])
-            print(f"\nInjection Point Analysis:")
-            print(f"  - Total injection points found: {len(injection_points)}")
-            print(f"  - Overall risk level: {result.get('overall_risk', 'UNKNOWN')}")
+            # Phase results
+            phase_results = result.get('phase_results', {})
+            print(f"\nPhase Results:")
+            for phase, phase_result in phase_results.items():
+                status = "✓" if phase_result.get('success', False) else "✗"
+                print(f"  {status} {phase.upper()}")
+                if phase == 'phase2' and 'report_path' in phase_result:
+                    print(f"     Report: {phase_result['report_path']}")
+                elif phase == 'phase3' and 'workflow_type' in phase_result:
+                    print(f"     Type: {phase_result['workflow_type']}")
 
-            # LLM generated commands
-            llm_commands = result.get('llm_generated_commands', [])
-            if llm_commands:
-                print(f"  - LLM analysis commands executed: {len(llm_commands)}")
-                print("  - Sample commands:")
-                for cmd in llm_commands[:3]:
-                    print(f"    • {cmd}")
+            # Injection success
+            injection_successful = result.get('injection_successful', False)
+            print(f"\nInjection Analysis:")
+            print(f"  - Injection successful: {'YES' if injection_successful else 'NO'}")
 
             # Detailed results
             detailed = result.get('detailed_results', {})
