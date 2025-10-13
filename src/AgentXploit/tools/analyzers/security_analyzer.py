@@ -26,6 +26,11 @@ class SecurityFinding:
     recommendation: str
     code_snippet: str
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert SecurityFinding to dictionary for JSON serialization"""
+        from dataclasses import asdict
+        return asdict(self)
+
 
 class SecurityAnalyzer:
     """LLM-powered security analysis of code files"""

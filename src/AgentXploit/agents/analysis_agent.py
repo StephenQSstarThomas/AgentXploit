@@ -25,6 +25,7 @@ from ..tools.planning.decision_engine import DecisionEngine
 from .exploration_strategies import ExplorationStrategies
 from .focus_tracker import FocusTracker, AnalysisFocus
 from .dynamic_focus_manager import DynamicFocusManager
+from .llm_focus_decision import LLMFocusDecisionMaker
 # from .fallback_strategies import FallbackAnalysisStrategies  # DISABLED: Using only LLM-driven decisions
 
 
@@ -72,12 +73,18 @@ class AnalysisAgent:
         
         # Initialize exploration strategies (after context_manager is ready)
         self.exploration_strategies = None  # Will be initialized after context_manager
-        
-        # Initialize focus tracker for deep investigation
-        self.focus_tracker = FocusTracker()
-        
-        # Initialize dynamic focus manager for LLM-driven focus generation
-        self.dynamic_focus = DynamicFocusManager()
+
+        # Initialize LLM decision maker for autonomous focus and path selection
+        self.llm_decision_maker = LLMFocusDecisionMaker()
+
+        # Initialize focus tracker with LLM decision maker for LLM-driven path selection
+        self.focus_tracker = FocusTracker(
+            repo_path=self.repo_path,
+            llm_decision_maker=self.llm_decision_maker
+        )
+
+        # Initialize dynamic focus manager with LLM decision maker
+        self.dynamic_focus = DynamicFocusManager(llm_decision_maker=self.llm_decision_maker)
         
         # Initialize fallback strategies for comprehensive analysis
         # DISABLED: Using only LLM-driven decisions for true autonomous exploration
@@ -93,6 +100,12 @@ class AnalysisAgent:
         # Initialize LLM helper for code analysis
         from ..tools.code_analysis.llm_decider import LLMHelper
         self.llm = LLMHelper()
+
+        # Initialize MCP analysis cache to avoid redundant calls
+        self._mcp_cache = {
+            'related_files': {},  # file_path -> List[str]
+            'config_files': {}    # file_path -> List[str]
+        }
     
     def _build_file_path(self, directory: str, filename: str) -> str:
         """Build normalized file path to prevent duplicates"""
@@ -119,26 +132,54 @@ class AnalysisAgent:
         # Initialize analysis state
         analysis_state = self._initialize_analysis_state()
         
-        # Generate initial dynamic focus if not provided
+        # Generate initial dynamic focus if not provided (LLM-driven)
         if focus is None:
-            # Get initial file list for context
+            # Get initial repository structure for LLM context
             initial_files = []
+            initial_dirs = []
             try:
                 root_result = self.tools.list_directory(".")
                 initial_files = root_result.get("files", [])
+                initial_dirs = root_result.get("directories", [])
             except:
                 pass
-            
-            focus = self.dynamic_focus.generate_initial_focus(
+
+            # Generate LLM-driven focus with full autonomy
+            focus_result = self.dynamic_focus.generate_initial_focus(
                 repo_name=self.repo_path.name,
-                initial_files=initial_files
+                initial_files=initial_files,
+                analysis_goal=f"Comprehensive security vulnerability analysis of {self.repo_path.name}",
+                repo_structure={'directories': initial_dirs, 'files': initial_files}
             )
-            print(f"Generated initial focus: '{focus}'")
+            focus = focus_result.get('focus_description', 'General security analysis')
+
+            # Create initial focus in tracker using LLM-generated focus
+            initial_focus_id = self.focus_tracker.create_focus(
+                focus_description=focus,
+                reason=focus_result.get('reason', focus_result.get('reasoning', 'Initial LLM-generated focus')),
+                priority=focus_result.get('priority', 50)
+            )
+
+            # Add suggested targets from LLM
+            suggested_targets = focus_result.get('suggested_targets', [])
+            for target in suggested_targets[:3]:
+                if target in initial_files or target in initial_dirs:
+                    self.focus_tracker.update_focus(
+                        initial_focus_id,
+                        lead={'path': target, 'reason': 'LLM-suggested initial target'}
+                    )
+
+            print(f"[LLM_FOCUS_INIT] {focus}")
         else:
+            # Legacy: create focus from provided string
             self.dynamic_focus.current_focus = focus
-            
-        print("Starting autonomous tool & dataflow analysis...")
-        print(f"Dynamic focus: '{focus}' - Agent will adapt based on discoveries")
+            self.focus_tracker.create_focus(
+                focus_description=focus,
+                reason="User-provided focus"
+            )
+
+        print("Starting LLM-driven autonomous security analysis...")
+        print(f"Initial focus: '{focus}' - LLM will autonomously adapt and select paths")
         
         # Main analysis loop
         return self._run_analysis_loop(analysis_state, max_steps, save_results, focus)
@@ -183,16 +224,38 @@ class AnalysisAgent:
         current_focus = focus  # Track current dynamic focus
         
         while analysis_state['step'] < max_steps:
-            # Update dynamic focus based on discoveries every 10 steps
+            # LLM-driven focus update based on discoveries (every 10 steps)
             if analysis_state['step'] > 0 and analysis_state['step'] % 10 == 0:
                 discoveries = self.dynamic_focus.extract_discoveries_from_context(
                     self.context_manager,
                     analysis_state.get('security_findings', [])
                 )
-                new_focus = self.dynamic_focus.update_focus_from_discoveries(discoveries)
-                if new_focus != current_focus:
+
+                # LLM decides whether to update/shift focus
+                focus_update = self.dynamic_focus.update_focus_from_discoveries(
+                    discoveries,
+                    explored_paths=self.context.get_explored_directories(),
+                    analyzed_files=self.context.get_analyzed_files()
+                )
+
+                action = focus_update.get('action', 'keep')
+                if action in ['update', 'shift']:
+                    new_focus = focus_update.get('focus_description', current_focus)
                     current_focus = new_focus
-                    print(f"\n[DYNAMIC FOCUS] Updated focus: '{current_focus}'")
+
+                    # Update focus tracker with new LLM-generated focus
+                    if self.focus_tracker.active_focuses:
+                        # Update primary focus
+                        primary_focus = self.focus_tracker.get_primary_focus()
+                        if primary_focus:
+                            # Create new focus to replace old one
+                            self.focus_tracker.create_focus(
+                                focus_description=new_focus,
+                                reason=focus_update.get('reason', focus_update.get('reasoning', 'LLM focus shift')),
+                                priority=focus_update.get('priority', 50)
+                            )
+
+                    print(f"\n[LLM_FOCUS_{action.upper()}] {current_focus}")
             
             # CORE INNOVATION: LLM-driven intelligent reassessment decision
             should_reassess, reassess_reason = self._llm_should_reassess_decision(
@@ -269,6 +332,11 @@ class AnalysisAgent:
                 error_msg = result.get("error", "Unknown error")
                 self.task_queue.fail_task(task.task_id, error_msg)
                 print(f"  Error: {error_msg}")
+
+                # Mark failed path in focus tracker to avoid retrying
+                if hasattr(task, 'focus_id') and task.focus_id:
+                    self.focus_tracker.mark_path_failed(task.focus_id, task.target)
+                    print(f"  [FOCUS] Marked path as failed in focus {task.focus_id}")
 
             # Log execution for tracing
             self.execution_logger.log_execution(task, result, analysis_state['step'] + 1)
@@ -559,6 +627,16 @@ Respond in JSON format:
                 security_result = self.security_analyzer.analyze_file_security(task.target, file_content)
                 analysis_state['security_findings'].append(security_result)
                 
+                # Get file diagnostics (optimized - single file only, won't cause hangs)
+                try:
+                    file_diagnostics = self.get_file_diagnostics_optimized(task.target, max_diagnostics=5)
+                    if file_diagnostics:
+                        # Add diagnostics to security result for additional context
+                        security_result['diagnostics'] = file_diagnostics
+                        print(f"  [DIAGNOSTICS_INTEGRATED] Added {len(file_diagnostics)} diagnostics to analysis")
+                except Exception as e:
+                    print(f"  [DIAGNOSTICS_SKIP] Could not get diagnostics: {e}")
+                
                 # Add security_result to the task result for ExecutionLogger
                 result['security_result'] = security_result
                 
@@ -600,9 +678,16 @@ Respond in JSON format:
                             tool_analysis = llm_analysis["tool_analysis"]
                             print(f"  [DEBUG] Tool analysis: {tool_analysis}")
                 
+                # Convert SecurityFinding objects to dicts for JSON serialization
+                findings = security_result.get("findings", [])
+                serialized_findings = [
+                    f.to_dict() if hasattr(f, 'to_dict') else f
+                    for f in findings
+                ]
+
                 analysis_data = {
                     "security_risk": risk_level.lower(),
-                    "key_findings": security_result.get("findings", []),
+                    "key_findings": serialized_findings,
                     "lines_of_code": result.get("result", {}).get("lines_read", 0),
                 }
                 self.context_manager.add_analysis_result(task.target, analysis_data)
@@ -1489,12 +1574,37 @@ DISCOVERED FILES:
         Returns:
             List of related file paths
         """
+        # Check cache first
+        if file_path and file_path in self._mcp_cache['related_files']:
+            print(f"  [MCP_CACHE_HIT] Using cached related files for: {file_path}")
+            return self._mcp_cache['related_files'][file_path]
+
         print(f"  [MCP_ANALYSIS] Starting MCP-powered related files analysis...")
         if file_path:
             print(f"  [MCP_ANALYSIS] Analyzing file: {file_path}")
 
         try:
-            runner = get_runner()
+            # CRITICAL: Use MINIMAL workspace (file's direct parent directory ONLY)
+            # to prevent LSP from scanning 2389+ files and pushing diagnostics for ALL files
+            if file_path:
+                file_abs_path = self.repo_path / file_path
+                # Use ONLY the file's parent directory (NOT parent's parent!)
+                # This minimizes LSP scan scope and diagnostic pushes
+                workspace_dir = file_abs_path.parent
+
+                # Ensure workspace stays within repo bounds
+                if str(workspace_dir).startswith(str(self.repo_path)):
+                    workspace = str(workspace_dir)
+                else:
+                    workspace = str(self.repo_path)  # Fallback (rarely needed)
+            else:
+                # If no file_path provided, use repo root as last resort
+                workspace = str(self.repo_path)
+                print(f"  [MCP_WORKSPACE] WARNING: No file_path provided, using repo root (may be slow!)")
+
+            print(f"  [MCP_WORKSPACE] Using MINIMAL workspace (file's parent dir only): {workspace}")
+            print(f"  [MCP_WORKSPACE] This limits LSP scan scope to avoid processing 2389+ files")
+            runner = get_runner(workspace=workspace)
 
             # Detect the file type from content
             file_type = "unknown"
@@ -1505,34 +1615,29 @@ DISCOVERED FILES:
 
             print(f"  [MCP_ANALYSIS] Detected file type: {file_type}")
 
-            prompt = f"""
-            Analyze this {file_type} code content and find all files it imports or depends on.
+            # Construct file URI for LSP
+            file_uri = f"file://{self.repo_path}/{file_path}" if not file_path.startswith('/') else f"file://{file_path}"
 
-            Code content:
-            ```
-            {content[:5000]}  # Limit to first 5000 chars to avoid token limits
-            ```
+            # Create a more specific prompt that instructs the agent to use LSP tools
+            prompt = f"""Analyze file dependencies using LSP tools.
 
-            Look for:
-            - Import statements (static and dynamic)
-            - From imports (Python)
-            - Require statements (JavaScript)
-            - Type imports
-            - Relative imports like './file' or '../file'
+FILE URI: {file_uri}
+FILE PATH: {file_path}
 
-            For Python: Convert module names to file paths (e.g., 'utils.helper' -> 'utils/helper.py')
-            For JavaScript: Include the actual file paths with extensions
+TASK:
+1. Use lsp_textDocument_documentSymbol on the file URI to get all symbols/imports
+2. For each import symbol, use lsp_textDocument_definition to resolve the actual file path
+3. Return a JSON array of the resolved file paths
 
-            Return ONLY a JSON array of file paths with their extensions.
-            Example: ["utils/helper.py", "models/user.js", "types/index.ts"]
+The file contains:
+```
+{content[:500]}
+```
 
-            Rules:
-            - Include file extensions
-            - Use forward slashes for paths
-            - For relative imports, keep them as relative paths
-            - Do not include external packages
-            - Return empty array [] if no imports found
-            """
+IMPORTANT: Use the MCP LSP tools! Return ONLY a JSON array of local file paths.
+Example: ["src/utils/helper.py", "lib/models/user.py"]
+
+Return [] if no dependencies found."""
 
             print(f"  [MCP_ANALYSIS] Running MCP agent analysis...")
             response = runner.run(prompt)
@@ -1566,6 +1671,12 @@ DISCOVERED FILES:
                     print(f"  [MCP_ANALYSIS] Added processed file: {processed_file}")
 
             print(f"  [MCP_ANALYSIS] Final processed files: {processed_files}")
+
+            # Cache the result
+            if file_path:
+                self._mcp_cache['related_files'][file_path] = processed_files
+                print(f"  [MCP_CACHE_SAVE] Cached related files for: {file_path}")
+
             return processed_files
 
         except Exception:
@@ -1583,12 +1694,37 @@ DISCOVERED FILES:
         Returns:
             List of referenced file paths
         """
+        # Check cache first
+        if file_path and file_path in self._mcp_cache['config_files']:
+            print(f"  [MCP_CACHE_HIT] Using cached config files for: {file_path}")
+            return self._mcp_cache['config_files'][file_path]
+
         print(f"  [MCP_CONFIG] Starting MCP-powered config file analysis...")
         if file_path:
             print(f"  [MCP_CONFIG] Analyzing config file: {file_path}")
 
         try:
-            runner = get_runner()
+            # CRITICAL: Use MINIMAL workspace (file's direct parent directory ONLY)
+            # For config files, using parent dir limits LSP scope and prevents
+            # scanning 2389+ files with diagnostics pushes that cause system hangs
+            if file_path:
+                file_abs_path = self.repo_path / file_path
+                # Use ONLY the file's parent directory (NOT grandparent!)
+                workspace_dir = file_abs_path.parent
+
+                # Ensure workspace stays within repo bounds
+                if str(workspace_dir).startswith(str(self.repo_path)):
+                    workspace = str(workspace_dir)
+                else:
+                    workspace = str(self.repo_path)  # Fallback (rarely needed)
+            else:
+                # If no file_path, use repo root as last resort
+                workspace = str(self.repo_path)
+                print(f"  [MCP_WORKSPACE] WARNING: No file_path for config, using repo root (may be slow!)")
+
+            print(f"  [MCP_WORKSPACE] Using MINIMAL config workspace (parent dir only): {workspace}")
+            print(f"  [MCP_WORKSPACE] This avoids LSP scanning entire repo (2389+ files)")
+            runner = get_runner(workspace=workspace)
 
             # Detect config type from content
             config_type = "generic configuration"
@@ -1674,6 +1810,12 @@ DISCOVERED FILES:
                 print(f"  [MCP_CONFIG] Added valid config file: {processed_file}")
 
             print(f"  [MCP_CONFIG] Final valid files: {valid_files}")
+
+            # Cache the result
+            if file_path:
+                self._mcp_cache['config_files'][file_path] = valid_files
+                print(f"  [MCP_CACHE_SAVE] Cached config files for: {file_path}")
+
             return valid_files
 
         except Exception as e:
@@ -1746,6 +1888,81 @@ DISCOVERED FILES:
                         self._extract_file_paths_from_dict(item, file_list)
 
     # REMOVED: _investigate_related_files - was rule-based, now handled by LLM decisions
+    
+    def get_file_diagnostics_optimized(self, file_path: str, max_diagnostics: int = 10) -> List[dict]:
+        """
+        Get diagnostics for a single file only (optimized to avoid workspace-wide scans).
+        This method prevents system hangs when processing large workspaces by:
+        1. Only requesting diagnostics for the specific file being analyzed
+        2. Using a limited workspace scope (file's parent directory)
+        3. Filtering and extracting only useful diagnostic information
+        
+        Args:
+            file_path: Path to the file to analyze (relative to repo_path)
+            max_diagnostics: Maximum number of diagnostics to return (default: 10)
+            
+        Returns:
+            List of filtered diagnostic objects with useful information
+        """
+        try:
+            # Check cache first
+            cache_key = f"diagnostics_{file_path}"
+            if cache_key in self._mcp_cache.get('diagnostics', {}):
+                print(f"  [DIAGNOSTICS_CACHE_HIT] Using cached diagnostics for: {file_path}")
+                return self._mcp_cache['diagnostics'][cache_key]
+            
+            # Initialize diagnostics cache if not exists
+            if 'diagnostics' not in self._mcp_cache:
+                self._mcp_cache['diagnostics'] = {}
+            
+            # CRITICAL: Use MINIMAL workspace scope (file's parent directory ONLY)
+            # Even with single-file diagnostic requests, LSP scans the entire workspace
+            # and pushes diagnostics for ALL files, causing hangs with 2389+ files
+            file_abs_path = self.repo_path / file_path
+            if not file_abs_path.exists():
+                print(f"  [DIAGNOSTICS] File not found: {file_path}")
+                return []
+            
+            # Use ONLY the file's direct parent directory
+            workspace_dir = file_abs_path.parent
+            
+            # Ensure workspace stays within repo bounds
+            if not str(workspace_dir).startswith(str(self.repo_path)):
+                workspace_dir = self.repo_path
+                print(f"  [DIAGNOSTICS] WARNING: Workspace outside repo, using repo root")
+            
+            print(f"  [DIAGNOSTICS] Using MINIMAL workspace (parent dir only): {workspace_dir}")
+            print(f"  [DIAGNOSTICS] NOTE: Diagnostics are currently DISABLED to prevent system hangs")
+            print(f"  [DIAGNOSTICS] Reason: LSP pushes ALL workspace file diagnostics after scan")
+            
+            # Get the MCP runner with limited workspace scope
+            runner = get_runner(workspace=str(workspace_dir))
+            
+            # Construct file URI
+            file_uri = f"file://{file_abs_path}"
+            
+            # Use the new optimized method from mcp_agent
+            diagnostics = runner.get_file_diagnostics(file_uri, max_diagnostics)
+            
+            # Cache the result
+            self._mcp_cache['diagnostics'][cache_key] = diagnostics
+            
+            if diagnostics:
+                print(f"  [DIAGNOSTICS] Found {len(diagnostics)} useful diagnostics for {file_path}")
+                # Print summary of diagnostics by severity
+                severity_counts = {}
+                for diag in diagnostics:
+                    severity = diag.get("severity", "unknown")
+                    severity_counts[severity] = severity_counts.get(severity, 0) + 1
+                print(f"  [DIAGNOSTICS] Severity breakdown: {severity_counts}")
+            else:
+                print(f"  [DIAGNOSTICS] No diagnostics found for {file_path}")
+            
+            return diagnostics
+            
+        except Exception as e:
+            print(f"  [DIAGNOSTICS_ERROR] Failed to get diagnostics for {file_path}: {e}")
+            return []
     
     def _execute_task(self, task) -> Dict[str, Any]:
         """Execute a single task and return standardized result format with improved path resolution"""
@@ -2066,7 +2283,10 @@ SECURITY ANALYSIS STATE:
             task_queue_info = {
                 'pending_count': self.task_queue.pending_count(),
                 'highest_priority': self.task_queue.get_highest_priority(),
-                'focus_targets_pending': len(self.focus_tracker.get_next_investigation_targets())
+                'focus_targets_pending': len(self.focus_tracker.get_next_investigation_targets(
+                    analyzed_files=self.context.get_analyzed_files(),
+                    explored_directories=self.context.get_explored_directories()
+                ))
             }
             
             # Get comprehensive data
@@ -2366,10 +2586,22 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
             return []
     
     def _get_focus_driven_task(self) -> Optional:
-        """Get next task driven by current investigation focus"""
-        
-        # First priority: focus-driven targets
-        focus_targets = self.focus_tracker.get_next_investigation_targets(limit=1)
+        """Get next task driven by current investigation focus (LLM-driven path selection)"""
+
+        # Get recent findings for LLM context from context_manager
+        try:
+            security_summary = self.context_manager.get_security_summary()
+            recent_findings = security_summary.get('findings', [])[-10:]  # Last 10 findings
+        except:
+            recent_findings = []
+
+        # LLM-driven focus targets (pass full context including recent findings)
+        focus_targets = self.focus_tracker.get_next_investigation_targets(
+            limit=1,
+            analyzed_files=self.context.get_analyzed_files(),
+            explored_directories=self.context.get_explored_directories(),
+            recent_findings=recent_findings
+        )
         if focus_targets:
             target = focus_targets[0]
             from ..tools.core.task import Task, TaskType
@@ -2384,7 +2616,7 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                 focus_driven=True
             )
             
-            print(f"  [FOCUS_TASK] {target['action'].upper()} {target['path']} - {target['reason']} (focus: {task.focus_type})")
+            print(f"  [FOCUS_TASK] {target['action'].upper()} {target['path']} - {target.get('reason', target.get('reasoning', 'LLM selected'))} (focus: {task.focus_type})")
             return task
         
         return None
@@ -2395,7 +2627,7 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
             findings = security_result.get("findings", [])
             risk_level = security_result["risk_assessment"]["overall_risk"].lower()
             
-            # Create or update focus for high and medium risk findings
+            # Create or update LLM-driven focus for high and medium risk findings
             if risk_level in ["high", "medium"] and findings:
                 # Look for existing focus on this file or create new one
                 focus_id = None
@@ -2403,14 +2635,19 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                     if focus.target == file_path:
                         focus_id = fid
                         break
-                
+
                 if focus_id is None:
-                    # Create new focus for this file
+                    # Create new LLM-driven focus for this file
+                    # Generate focus description based on actual findings
+                    finding_types = set(f.get('finding_type', 'unknown') for f in findings[:3])
+                    focus_description = f"{risk_level.upper()} risk: {', '.join(finding_types)} in {Path(file_path).name}"
+
                     focus_id = self.focus_tracker.create_focus(
-                        "vulnerability",
-                        file_path,
-                        f"{risk_level.upper()} risk findings: {len(findings)} issues",
-                        findings
+                        focus_description=focus_description,
+                        target=file_path,
+                        reason=f"{risk_level.upper()} risk findings: {len(findings)} issues",
+                        findings=findings,
+                        focus_type="vulnerability"  # Legacy compatibility
                     )
                 
                 # Add findings to existing or new focus
@@ -2435,10 +2672,12 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                 
                 # Only create focuses for high/medium risk files
                 if risk_level in ["high", "medium"]:
+                    dependency_focus_description = f"Dependencies of {risk_level} risk file {Path(file_path).name}"
                     dependency_focus_id = self.focus_tracker.create_focus(
-                        "dependency",
-                        file_path,
-                        f"Dependencies of {risk_level} risk file",
+                        focus_description=dependency_focus_description,
+                        target=file_path,
+                        reason=f"Tracking dependencies of {risk_level} risk file",
+                        focus_type="dependency"  # Legacy
                     )
 
                     for related_file in related_files[:3]:  # Limit to top 3
@@ -2460,10 +2699,12 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                     
                     # Only create focuses for high/medium risk files
                     if risk_level in ["high", "medium"]:
+                        config_focus_description = f"Config references from {risk_level} risk file {Path(file_path).name}"
                         config_focus_id = self.focus_tracker.create_focus(
-                            "config_dependency",
-                            file_path,
-                            f"Files referenced in {risk_level} risk config file",
+                            focus_description=config_focus_description,
+                            target=file_path,
+                            reason=f"Files referenced in {risk_level} risk config file",
+                            focus_type="config_dependency"  # Legacy
                         )
 
                         for config_file in config_files[:3]:  # Limit to top 3
@@ -2486,8 +2727,14 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
             
             # From findings - look for specific patterns
             for finding in findings:
-                description = finding.get('description', '').lower()
-                
+                # Handle both SecurityFinding objects and dict formats
+                if hasattr(finding, 'description'):
+                    description = finding.description.lower()
+                elif isinstance(finding, dict):
+                    description = finding.get('description', '').lower()
+                else:
+                    description = ''
+
                 # SQL injection patterns suggest database-related files
                 if 'sql' in description or 'database' in description:
                     leads.append({
@@ -2498,7 +2745,7 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                         'path': f"{base_dir}/db",
                         'reason': f'Database configuration check'
                     })
-                
+
                 # Authentication issues suggest auth-related files
                 if 'auth' in description or 'login' in description or 'password' in description:
                     leads.append({
@@ -2509,7 +2756,7 @@ DIRECTORIES EXPLORED: {len(explored_dirs)} total
                         'path': f"{base_dir}/security.py",
                         'reason': f'Security configuration check'
                     })
-                
+
                 # Configuration issues suggest config files
                 if 'config' in description or 'setting' in description:
                     leads.append({
