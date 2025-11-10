@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:google.github.io)",
+      "Bash(python:*)",
+      "Bash(chmod:*)",
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(cat:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

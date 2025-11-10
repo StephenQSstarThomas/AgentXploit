@@ -12,6 +12,8 @@
 !inject_content/injection_content.txt
 !src/exploiter_agent
 !src/exploiter_agent/**
+!src/analysis_agent
+!src/analysis_agent/**
 
 # Still ignore common artifacts
 src/AgentXploit/.claude

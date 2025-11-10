@@ -1,0 +1,208 @@
+{
+  "session_id": "47eec8cb-f8d8-47af-8ce9-a314bd8123fe",
+  "target_path": "/home/shiqiu/gpt-researcher",
+  "container_name": null,
+  "events": [
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1762794590.3815556
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1762794590.3818855
+    },
+    {
+      "type": "tool_call",
+      "tool": "list_directory",
+      "timestamp": 1762794592.033346
+    },
+    {
+      "type": "tool_response",
+      "tool": "list_directory",
+      "timestamp": 1762794592.1464167
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1762794596.4055111
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1762794596.405946
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794601.3315423
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794601.3316321
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794601.3316941
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794601.3318021
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794601.331855
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794601.331902
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794601.336188
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794601.3364682
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794601.3397205
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794601.3398883
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794601.3446345
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794601.34478
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1762794604.981419
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1762794604.9818406
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794606.78341
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794606.8124104
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794609.9560175
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794609.9753268
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794611.5757473
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794611.605528
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794614.7890043
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794614.80953
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794616.406909
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794616.44506
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794618.1142733
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794618.1451201
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794619.602835
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794619.673358
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794621.3142
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794621.318933
+    },
+    {
+      "type": "tool_call",
+      "tool": "read_code",
+      "timestamp": 1762794622.7844954
+    },
+    {
+      "type": "tool_response",
+      "tool": "read_code",
+      "timestamp": 1762794622.7891006
+    },
+    {
+      "type": "tool_call",
+      "tool": "search_code",
+      "timestamp": 1762794624.310477
+    },
+    {
+      "type": "tool_response",
+      "tool": "search_code",
+      "timestamp": 1762794624.3387032
+    }
+  ],
+  "final_response": null
+}
