@@ -1,10 +1,13 @@
 """
-Code reading tool for analyzing target agent codebases.
-Supports both local filesystem and Docker container access.
+Code reading tool for analyzing local agent codebases.
+Supports reading files, listing directories, searching code, and extracting imports.
+
+For Docker container access, use execute_docker_command tool separately.
 """
 import os
 import logging
 import subprocess
+import re
 from typing import Optional
 from pathlib import Path
 
@@ -13,18 +16,13 @@ logger = logging.getLogger(__name__)
 
 def read_code(
     file_path: str,
-    container_name: Optional[str] = None,
     max_lines: Optional[int] = None,
     line_offset: Optional[int] = None
 ) -> dict:
-    """Read source code file from target agent codebase.
-
-    Can read from local filesystem or Docker container. Use this to analyze
-    target agent's implementation, configuration files, and data flows.
+    """Read source code file from local filesystem.
 
     Args:
         file_path: Path to the file to read
-        container_name: If provided, read from Docker container instead of local filesystem
         max_lines: Maximum number of lines to read (useful for large files)
         line_offset: Starting line number (0-based, useful with max_lines)
 
@@ -36,27 +34,53 @@ def read_code(
             "lines_read": int,        # Number of lines read
             "total_lines": int,       # Total lines in file
             "truncated": bool,        # Whether content was truncated
-            "source": str,            # "local" or "docker"
             "message": str
         }
 
     Example:
-        # Read local file
-        read_code(file_path="/path/to/target/agent.py")
-
-        # Read from Docker container
-        read_code(file_path="/app/agent.py", container_name="target_agent_container")
+        # Read entire file
+        read_code(file_path="/path/to/agent.py")
 
         # Read first 100 lines
-        read_code(file_path="/app/agent.py", max_lines=100)
+        read_code(file_path="/path/to/agent.py", max_lines=100)
+
+        # Read lines 50-150
+        read_code(file_path="/path/to/agent.py", line_offset=50, max_lines=100)
     """
     try:
-        if container_name:
-            # Read from Docker container
-            return _read_from_docker(file_path, container_name, max_lines, line_offset)
-        else:
-            # Read from local filesystem
-            return _read_from_local(file_path, max_lines, line_offset)
+        if not os.path.exists(file_path):
+            return {
+                "success": False,
+                "file_path": file_path,
+                "content": "",
+                "lines_read": 0,
+                "total_lines": 0,
+                "truncated": False,
+                "message": f"File not found: {file_path}"
+            }
+
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+
+        total_lines = len(lines)
+        offset = line_offset or 0
+        limit = max_lines or total_lines
+
+        # Apply offset and limit
+        selected_lines = lines[offset:offset + limit]
+        content = ''.join(selected_lines)
+        lines_read = len(selected_lines)
+        truncated = (offset + lines_read) < total_lines
+
+        return {
+            "success": True,
+            "file_path": file_path,
+            "content": content,
+            "lines_read": lines_read,
+            "total_lines": total_lines,
+            "truncated": truncated,
+            "message": f"Read {lines_read}/{total_lines} lines from {file_path}"
+        }
 
     except Exception as e:
         logger.error(f"Code read error: {e}", exc_info=True)
@@ -67,22 +91,19 @@ def read_code(
             "lines_read": 0,
             "total_lines": 0,
             "truncated": False,
-            "source": "docker" if container_name else "local",
             "message": f"Error: {str(e)}"
         }
 
 
 def list_directory(
     dir_path: str,
-    container_name: Optional[str] = None,
     recursive: bool = False,
     pattern: Optional[str] = None
 ) -> dict:
-    """List directory contents to discover target agent files.
+    """List directory contents from local filesystem.
 
     Args:
         dir_path: Path to directory
-        container_name: If provided, list from Docker container
         recursive: If True, list subdirectories recursively
         pattern: Optional glob pattern (e.g., "*.py", "*.yaml")
 
@@ -93,15 +114,58 @@ def list_directory(
             "files": List[str],       # List of file names/paths
             "directories": List[str], # List of subdirectories
             "total_files": int,
-            "source": str,
             "message": str
         }
+
+    Example:
+        # List all files in directory
+        list_directory("/path/to/codebase")
+
+        # List all Python files recursively
+        list_directory("/path/to/codebase", recursive=True, pattern="*.py")
     """
     try:
-        if container_name:
-            return _list_docker_directory(dir_path, container_name, recursive, pattern)
+        path = Path(dir_path)
+
+        if not path.exists():
+            return {
+                "success": False,
+                "dir_path": dir_path,
+                "files": [],
+                "directories": [],
+                "total_files": 0,
+                "message": f"Directory not found: {dir_path}"
+            }
+
+        files = []
+        directories = []
+
+        if recursive:
+            # Recursive listing
+            glob_pattern = f"**/{pattern}" if pattern else "**/*"
+            for item in path.glob(glob_pattern):
+                if item.is_file():
+                    files.append(str(item.relative_to(path)))
+                elif item.is_dir():
+                    directories.append(str(item.relative_to(path)))
         else:
-            return _list_local_directory(dir_path, recursive, pattern)
+            # Non-recursive
+            for item in path.iterdir():
+                if pattern and not item.match(pattern):
+                    continue
+                if item.is_file():
+                    files.append(item.name)
+                elif item.is_dir():
+                    directories.append(item.name)
+
+        return {
+            "success": True,
+            "dir_path": dir_path,
+            "files": sorted(files),
+            "directories": sorted(directories),
+            "total_files": len(files),
+            "message": f"Found {len(files)} files and {len(directories)} directories"
+        }
 
     except Exception as e:
         logger.error(f"Directory list error: {e}", exc_info=True)
@@ -111,7 +175,6 @@ def list_directory(
             "files": [],
             "directories": [],
             "total_files": 0,
-            "source": "docker" if container_name else "local",
             "message": f"Error: {str(e)}"
         }
 
@@ -119,16 +182,14 @@ def list_directory(
 def search_code(
     search_pattern: str,
     search_path: str,
-    container_name: Optional[str] = None,
     file_pattern: Optional[str] = None,
     max_results: int = 50
 ) -> dict:
-    """Search for patterns in target agent codebase using grep.
+    """Search for patterns in local codebase using grep.
 
     Args:
         search_pattern: Pattern to search for (supports regex)
         search_path: Directory to search in
-        container_name: If provided, search in Docker container
         file_pattern: Optional file pattern (e.g., "*.py")
         max_results: Maximum number of results to return
 
@@ -139,243 +200,16 @@ def search_code(
             "matches": List[dict],    # [{"file": str, "line": int, "text": str}, ...]
             "total_matches": int,
             "truncated": bool,
-            "source": str,
             "message": str
         }
+
+    Example:
+        # Search for function definitions
+        search_code("def.*tool", "/path/to/codebase")
+
+        # Search only in Python files
+        search_code("import.*agent", "/path/to/codebase", file_pattern="*.py")
     """
-    try:
-        if container_name:
-            return _search_docker_code(search_pattern, search_path, container_name, file_pattern, max_results)
-        else:
-            return _search_local_code(search_pattern, search_path, file_pattern, max_results)
-
-    except Exception as e:
-        logger.error(f"Code search error: {e}", exc_info=True)
-        return {
-            "success": False,
-            "pattern": search_pattern,
-            "matches": [],
-            "total_matches": 0,
-            "truncated": False,
-            "source": "docker" if container_name else "local",
-            "message": f"Error: {str(e)}"
-        }
-
-
-# ============================================================================
-# Internal helper functions
-# ============================================================================
-
-def _read_from_local(file_path: str, max_lines: Optional[int], line_offset: Optional[int]) -> dict:
-    """Read file from local filesystem."""
-    if not os.path.exists(file_path):
-        return {
-            "success": False,
-            "file_path": file_path,
-            "content": "",
-            "lines_read": 0,
-            "total_lines": 0,
-            "truncated": False,
-            "source": "local",
-            "message": f"File not found: {file_path}"
-        }
-
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        lines = f.readlines()
-
-    total_lines = len(lines)
-    offset = line_offset or 0
-    limit = max_lines or total_lines
-
-    # Apply offset and limit
-    selected_lines = lines[offset:offset + limit]
-    content = ''.join(selected_lines)
-    lines_read = len(selected_lines)
-    truncated = (offset + lines_read) < total_lines
-
-    return {
-        "success": True,
-        "file_path": file_path,
-        "content": content,
-        "lines_read": lines_read,
-        "total_lines": total_lines,
-        "truncated": truncated,
-        "source": "local",
-        "message": f"Read {lines_read}/{total_lines} lines from {file_path}"
-    }
-
-
-def _read_from_docker(file_path: str, container_name: str, max_lines: Optional[int], line_offset: Optional[int]) -> dict:
-    """Read file from Docker container using docker exec."""
-    try:
-        # Build command based on parameters
-        if max_lines and line_offset:
-            # Read specific range: skip first N lines, then read M lines
-            cmd = f"tail -n +{line_offset + 1} {file_path} | head -n {max_lines}"
-        elif max_lines:
-            # Read first N lines
-            cmd = f"head -n {max_lines} {file_path}"
-        elif line_offset:
-            # Skip first N lines, read rest
-            cmd = f"tail -n +{line_offset + 1} {file_path}"
-        else:
-            # Read entire file
-            cmd = f"cat {file_path}"
-
-        # Execute in container
-        result = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c", cmd],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-
-        if result.returncode != 0:
-            return {
-                "success": False,
-                "file_path": file_path,
-                "content": "",
-                "lines_read": 0,
-                "total_lines": 0,
-                "truncated": False,
-                "source": "docker",
-                "message": f"Docker exec failed: {result.stderr}"
-            }
-
-        content = result.stdout
-        lines_read = len(content.splitlines())
-
-        # Get total line count
-        total_result = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c", f"wc -l < {file_path}"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        total_lines = int(total_result.stdout.strip()) if total_result.returncode == 0 else lines_read
-
-        truncated = lines_read < total_lines
-
-        return {
-            "success": True,
-            "file_path": file_path,
-            "content": content,
-            "lines_read": lines_read,
-            "total_lines": total_lines,
-            "truncated": truncated,
-            "source": "docker",
-            "message": f"Read {lines_read}/{total_lines} lines from container:{container_name}:{file_path}"
-        }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "file_path": file_path,
-            "content": "",
-            "lines_read": 0,
-            "total_lines": 0,
-            "truncated": False,
-            "source": "docker",
-            "message": "Command timeout - file may be too large"
-        }
-    except Exception as e:
-        raise
-
-
-def _list_local_directory(dir_path: str, recursive: bool, pattern: Optional[str]) -> dict:
-    """List local directory contents."""
-    path = Path(dir_path)
-
-    if not path.exists():
-        return {
-            "success": False,
-            "dir_path": dir_path,
-            "files": [],
-            "directories": [],
-            "total_files": 0,
-            "source": "local",
-            "message": f"Directory not found: {dir_path}"
-        }
-
-    files = []
-    directories = []
-
-    if recursive:
-        # Recursive listing
-        glob_pattern = f"**/{pattern}" if pattern else "**/*"
-        for item in path.glob(glob_pattern):
-            if item.is_file():
-                files.append(str(item.relative_to(path)))
-            elif item.is_dir():
-                directories.append(str(item.relative_to(path)))
-    else:
-        # Non-recursive
-        for item in path.iterdir():
-            if pattern and not item.match(pattern):
-                continue
-            if item.is_file():
-                files.append(item.name)
-            elif item.is_dir():
-                directories.append(item.name)
-
-    return {
-        "success": True,
-        "dir_path": dir_path,
-        "files": sorted(files),
-        "directories": sorted(directories),
-        "total_files": len(files),
-        "source": "local",
-        "message": f"Found {len(files)} files and {len(directories)} directories"
-    }
-
-
-def _list_docker_directory(dir_path: str, container_name: str, recursive: bool, pattern: Optional[str]) -> dict:
-    """List Docker container directory contents."""
-    try:
-        if recursive:
-            if pattern:
-                cmd = f"find {dir_path} -name '{pattern}' -type f"
-            else:
-                cmd = f"find {dir_path} -type f"
-        else:
-            cmd = f"ls -1 {dir_path}"
-
-        result = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c", cmd],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-
-        if result.returncode != 0:
-            return {
-                "success": False,
-                "dir_path": dir_path,
-                "files": [],
-                "directories": [],
-                "total_files": 0,
-                "source": "docker",
-                "message": f"Docker exec failed: {result.stderr}"
-            }
-
-        items = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-
-        return {
-            "success": True,
-            "dir_path": dir_path,
-            "files": items,
-            "directories": [],  # Simplified for docker
-            "total_files": len(items),
-            "source": "docker",
-            "message": f"Found {len(items)} items in container:{container_name}:{dir_path}"
-        }
-
-    except Exception as e:
-        raise
-
-
-def _search_local_code(search_pattern: str, search_path: str, file_pattern: Optional[str], max_results: int) -> dict:
-    """Search code in local filesystem using grep."""
     try:
         cmd = ["grep", "-rn", search_pattern, search_path]
         if file_pattern:
@@ -396,7 +230,6 @@ def _search_local_code(search_pattern: str, search_path: str, file_pattern: Opti
                 "matches": [],
                 "total_matches": 0,
                 "truncated": False,
-                "source": "local",
                 "message": f"Grep failed: {result.stderr}"
             }
 
@@ -419,65 +252,379 @@ def _search_local_code(search_pattern: str, search_path: str, file_pattern: Opti
             "matches": matches,
             "total_matches": total_matches,
             "truncated": truncated,
-            "source": "local",
             "message": f"Found {len(matches)} matches (showing up to {max_results})"
         }
 
     except Exception as e:
-        raise
+        logger.error(f"Code search error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "pattern": search_pattern,
+            "matches": [],
+            "total_matches": 0,
+            "truncated": False,
+            "message": f"Error: {str(e)}"
+        }
 
 
-def _search_docker_code(search_pattern: str, search_path: str, container_name: str, file_pattern: Optional[str], max_results: int) -> dict:
-    """Search code in Docker container using grep."""
+def extract_imports(file_path: str) -> dict:
+    """Extract import statements and cross-file references from a code file.
+
+    Supports Python, JavaScript/TypeScript, Go, Java, and other common languages.
+    Returns both import statements and resolved file paths when possible.
+
+    Args:
+        file_path: Path to the file to analyze
+
+    Returns:
+        dict: {
+            "success": bool,
+            "file_path": str,
+            "language": str,           # Detected language
+            "imports": List[dict],     # [{
+            #   "statement": str,       # Original import statement
+            #   "module": str,          # Module/package name
+            #   "items": List[str],     # Imported items (if applicable)
+            #   "line": int             # Line number
+            # }]
+            "suggested_files": List[str],  # Suggested file paths to explore
+            "message": str
+        }
+
+    Example:
+        extract_imports("/path/to/agent.py")
+        # Returns imports like:
+        # - "from tools.reader import read_file" -> suggests tools/reader.py
+        # - "import os" -> standard library (no suggestion)
+    """
     try:
-        if file_pattern:
-            cmd = f"grep -rn --include '{file_pattern}' '{search_pattern}' {search_path}"
-        else:
-            cmd = f"grep -rn '{search_pattern}' {search_path}"
-
-        result = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c", cmd],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-
-        if result.returncode not in [0, 1]:
+        # Read file content
+        read_result = read_code(file_path)
+        if not read_result["success"]:
             return {
                 "success": False,
-                "pattern": search_pattern,
-                "matches": [],
-                "total_matches": 0,
-                "truncated": False,
-                "source": "docker",
-                "message": f"Docker grep failed: {result.stderr}"
+                "file_path": file_path,
+                "language": "unknown",
+                "imports": [],
+                "suggested_files": [],
+                "message": f"Failed to read file: {read_result['message']}"
             }
 
-        matches = []
-        for line in result.stdout.splitlines()[:max_results]:
-            parts = line.split(':', 2)
-            if len(parts) >= 3:
-                matches.append({
-                    "file": parts[0],
-                    "line": int(parts[1]),
-                    "text": parts[2]
-                })
+        content = read_result["content"]
 
-        total_matches = len(result.stdout.splitlines())
-        truncated = total_matches > max_results
+        # Detect language from extension
+        language = _detect_language(file_path)
+
+        # Extract imports based on language
+        imports = []
+        suggested_files = []
+
+        if language == "python":
+            imports, suggested_files = _extract_python_imports(content, file_path)
+        elif language in ["javascript", "typescript"]:
+            imports, suggested_files = _extract_js_imports(content, file_path)
+        elif language == "go":
+            imports, suggested_files = _extract_go_imports(content, file_path)
+        elif language == "java":
+            imports, suggested_files = _extract_java_imports(content, file_path)
 
         return {
             "success": True,
-            "pattern": search_pattern,
-            "matches": matches,
-            "total_matches": total_matches,
-            "truncated": truncated,
-            "source": "docker",
-            "message": f"Found {len(matches)} matches in container (showing up to {max_results})"
+            "file_path": file_path,
+            "language": language,
+            "imports": imports,
+            "suggested_files": suggested_files,
+            "message": f"Found {len(imports)} imports, {len(suggested_files)} suggested files to explore"
         }
 
     except Exception as e:
-        raise
+        logger.error(f"Import extraction error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "file_path": file_path,
+            "language": "unknown",
+            "imports": [],
+            "suggested_files": [],
+            "message": f"Error: {str(e)}"
+        }
 
 
-__all__ = ["read_code", "list_directory", "search_code"]
+def read_code_with_references(
+    file_path: str,
+    include_imports: bool = True,
+    max_lines: Optional[int] = None
+) -> dict:
+    """Read code file and automatically extract cross-file references.
+
+    This is an enhanced version of read_code that also analyzes imports
+    and suggests related files to explore.
+
+    Args:
+        file_path: Path to the file to read
+        include_imports: Whether to extract imports (default: True)
+        max_lines: Maximum lines to read
+
+    Returns:
+        dict: Combined result of read_code and extract_imports
+
+    Example:
+        result = read_code_with_references("/path/to/agent.py")
+        # Returns: content + imports + suggested_files
+
+        # Follow suggested files
+        for suggested_file in result["suggested_files"]:
+            read_code(suggested_file)
+    """
+    try:
+        # Read file content
+        read_result = read_code(file_path, max_lines)
+        if not read_result["success"]:
+            return read_result
+
+        result = read_result.copy()
+
+        # Extract imports if requested
+        if include_imports:
+            import_result = extract_imports(file_path)
+            if import_result["success"]:
+                result["language"] = import_result["language"]
+                result["imports"] = import_result["imports"]
+                result["suggested_files"] = import_result["suggested_files"]
+                result["cross_references_found"] = len(import_result["suggested_files"])
+
+                # Enhance message
+                if import_result["suggested_files"]:
+                    files_preview = ", ".join(import_result["suggested_files"][:3])
+                    more = f" and {len(import_result['suggested_files']) - 3} more" if len(import_result["suggested_files"]) > 3 else ""
+                    result["message"] += f"\n\nCross-references found ({len(import_result['suggested_files'])}): {files_preview}{more}"
+                    result["message"] += "\nUse read_code to explore these files."
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Read with references error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "file_path": file_path,
+            "message": f"Error: {str(e)}"
+        }
+
+
+# ============================================================================
+# Internal helper functions for import extraction
+# ============================================================================
+
+def _detect_language(file_path: str) -> str:
+    """Detect programming language from file extension."""
+    ext = Path(file_path).suffix.lower()
+
+    language_map = {
+        ".py": "python",
+        ".js": "javascript",
+        ".jsx": "javascript",
+        ".ts": "typescript",
+        ".tsx": "typescript",
+        ".go": "go",
+        ".java": "java",
+        ".rb": "ruby",
+        ".php": "php",
+        ".rs": "rust",
+        ".c": "c",
+        ".cpp": "cpp",
+        ".h": "c",
+        ".hpp": "cpp"
+    }
+
+    return language_map.get(ext, "unknown")
+
+
+def _extract_python_imports(content: str, file_path: str) -> tuple:
+    """Extract Python import statements and resolve file paths."""
+    imports = []
+    suggested_files = []
+
+    # Regex patterns for Python imports
+    import_pattern = re.compile(r'^import\s+([a-zA-Z0-9_., ]+)', re.MULTILINE)
+    from_import_pattern = re.compile(r'^from\s+([a-zA-Z0-9_.]+)\s+import\s+([a-zA-Z0-9_., *\(\)]+)', re.MULTILINE)
+
+    lines = content.split('\n')
+    base_dir = str(Path(file_path).parent)
+
+    # Extract standard imports
+    for i, line in enumerate(lines, 1):
+        # Match "import module"
+        import_match = import_pattern.match(line.strip())
+        if import_match:
+            modules = [m.strip() for m in import_match.group(1).split(',')]
+            for module in modules:
+                imports.append({
+                    "statement": f"import {module}",
+                    "module": module,
+                    "items": [],
+                    "line": i
+                })
+
+                # Try to resolve to file path (for relative imports)
+                resolved = _resolve_python_module(module, base_dir)
+                if resolved:
+                    suggested_files.append(resolved)
+
+        # Match "from module import items"
+        from_match = from_import_pattern.match(line.strip())
+        if from_match:
+            module = from_match.group(1)
+            items_str = from_match.group(2)
+            items = [item.strip() for item in items_str.replace('(', '').replace(')', '').split(',')]
+
+            imports.append({
+                "statement": line.strip(),
+                "module": module,
+                "items": items,
+                "line": i
+            })
+
+            # Try to resolve to file path
+            resolved = _resolve_python_module(module, base_dir)
+            if resolved:
+                suggested_files.append(resolved)
+
+    return imports, list(set(suggested_files))  # Remove duplicates
+
+
+def _resolve_python_module(module: str, base_dir: str) -> Optional[str]:
+    """Resolve Python module name to file path."""
+    # Skip standard library modules (common ones)
+    stdlib_modules = {
+        'os', 'sys', 'json', 'logging', 'pathlib', 'subprocess', 're',
+        'typing', 'datetime', 'time', 'collections', 'itertools', 'functools',
+        'asyncio', 'threading', 'multiprocessing', 'unittest', 'pytest'
+    }
+
+    if module.split('.')[0] in stdlib_modules:
+        return None
+
+    # Convert module path to file path (e.g., tools.reader -> tools/reader.py)
+    module_path = module.replace('.', '/')
+
+    # Try both .py file and __init__.py in directory
+    candidates = [
+        f"{base_dir}/{module_path}.py",
+        f"{base_dir}/{module_path}/__init__.py"
+    ]
+
+    # Return first candidate (actual existence check would be done by caller)
+    return candidates[0]
+
+
+def _extract_js_imports(content: str, file_path: str) -> tuple:
+    """Extract JavaScript/TypeScript import statements."""
+    imports = []
+    suggested_files = []
+
+    # Regex patterns for JS/TS imports
+    import_pattern = re.compile(r'^import\s+(?:(.+?)\s+from\s+)?[\'"]([^\'"]+)[\'"]', re.MULTILINE)
+    require_pattern = re.compile(r'(?:const|let|var)\s+(.+?)\s*=\s*require\([\'"]([^\'"]+)[\'"]\)', re.MULTILINE)
+
+    lines = content.split('\n')
+    base_dir = str(Path(file_path).parent)
+
+    for i, line in enumerate(lines, 1):
+        # Match ES6 imports
+        import_match = import_pattern.match(line.strip())
+        if import_match:
+            items_str = import_match.group(1) or ""
+            module = import_match.group(2)
+
+            imports.append({
+                "statement": line.strip(),
+                "module": module,
+                "items": [items_str] if items_str else [],
+                "line": i
+            })
+
+            # Resolve relative imports (./path or ../path)
+            if module.startswith('.'):
+                resolved = f"{base_dir}/{module}"
+                # Add common extensions
+                for ext in ['.js', '.ts', '.jsx', '.tsx']:
+                    suggested_files.append(f"{resolved}{ext}")
+
+        # Match require() statements
+        require_match = require_pattern.search(line)
+        if require_match:
+            module = require_match.group(2)
+            imports.append({
+                "statement": line.strip(),
+                "module": module,
+                "items": [require_match.group(1)],
+                "line": i
+            })
+
+            if module.startswith('.'):
+                resolved = f"{base_dir}/{module}.js"
+                suggested_files.append(resolved)
+
+    return imports, list(set(suggested_files))
+
+
+def _extract_go_imports(content: str, file_path: str) -> tuple:
+    """Extract Go import statements."""
+    imports = []
+
+    # Go import pattern
+    single_import = re.compile(r'^import\s+"([^"]+)"', re.MULTILINE)
+    multi_import = re.compile(r'import\s*\((.*?)\)', re.DOTALL)
+
+    # Single imports
+    for match in single_import.finditer(content):
+        imports.append({
+            "statement": match.group(0),
+            "module": match.group(1),
+            "items": [],
+            "line": content[:match.start()].count('\n') + 1
+        })
+
+    # Multi-line imports
+    for match in multi_import.finditer(content):
+        import_block = match.group(1)
+        for line in import_block.split('\n'):
+            line = line.strip()
+            if line and line.startswith('"'):
+                module = line.strip('"')
+                imports.append({
+                    "statement": f'import "{module}"',
+                    "module": module,
+                    "items": [],
+                    "line": content[:match.start()].count('\n') + 1
+                })
+
+    # Go imports are typically package paths, not file paths
+    return imports, []
+
+
+def _extract_java_imports(content: str, file_path: str) -> tuple:
+    """Extract Java import statements."""
+    imports = []
+
+    # Java import pattern
+    import_pattern = re.compile(r'^import\s+(?:static\s+)?([a-zA-Z0-9_.]+(?:\.\*)?);', re.MULTILINE)
+
+    for match in import_pattern.finditer(content):
+        imports.append({
+            "statement": match.group(0),
+            "module": match.group(1),
+            "items": [],
+            "line": content[:match.start()].count('\n') + 1
+        })
+
+    # Java imports are package paths, not direct file paths
+    return imports, []
+
+
+__all__ = [
+    "read_code",
+    "list_directory",
+    "search_code",
+    "extract_imports",
+    "read_code_with_references"
+]

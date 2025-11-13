@@ -6,7 +6,10 @@
       "Bash(chmod:*)",
       "Bash(pip show:*)",
       "Bash(pip install:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(xargs:*)",
+      "Bash(python3:*)",
+      "Bash(timeout 180 python3:*)"
     ],
     "deny": [],
     "ask": []

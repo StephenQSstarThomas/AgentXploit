@@ -1,0 +1,803 @@
+{
+  "session_id": "f8ad2c16-947f-4d4b-843f-afadbb431c1a",
+  "agent_name": "gpt-researcher",
+  "analysis_start": "2025-11-12 22:32:43",
+  "analysis_status": "in_progress",
+  "last_updated": "2025-11-12 22:39:18",
+  "tools": [
+    {
+      "tool_name": "ResearchConductor",
+      "position": "gpt_researcher/skills/researcher.py:ResearchConductor",
+      "discovered_at": "2025-11-12 22:34:37",
+      "tool_info": {
+        "tool_name": "ResearchConductor",
+        "position": "gpt_researcher/skills/researcher.py:ResearchConductor",
+        "description": "Orchestrates and manages the full end-to-end research process, including planning, gathering, and curating contextual data for a research task.",
+        "functionality": "The ResearchConductor class acts as a high-level controller for automated research workflows. It manages the planning of research, orchestrates web and document search operations, coordinates multiple retriever and scraper tools (including specialized ones using Model Context Protocol - MCP), and curates gathered context for further processing. Its core logic includes breaking down queries into sub-queries, searching with a variety of retriever backends (web, local, vectorstore, hybrid, or Azure), scraping and summarizing relevant content, and performing intelligent source curation and context combination. The class is deeply asynchronous, supporting parallel execution, cache optimization for expensive operations (like MCP retrieval), logging, event streaming via websocket, and granular progress tracking.",
+        "parameters": [
+          {
+            "name": "researcher",
+            "type": "object (likely GPTResearcher or similar)",
+            "purpose": "Holds the research task definition, configuration, retrievers, websocket and state for the research session."
+          }
+        ],
+        "return_type": "various (mostly async, typically returns list, str, or None, depending on the method)",
+        "return_description": "Main public methods return research context as strings or lists, typically providing planned outlines, gathered research context, or summaries. Some methods produce side effects (logging, streaming output, state update), while internal steps return processed context, search results, or curation information."
+      },
+      "dataflow": {
+        "tool_name": "ResearchConductor",
+        "position": "gpt_researcher/skills/researcher.py:ResearchConductor",
+        "data_sources": [
+          "user_input",
+          "web_content",
+          "api_response",
+          "file_content",
+          "local_document",
+          "llm_output"
+        ],
+        "data_destinations": [
+          "llm_prompt",
+          "file_write",
+          "stream_output",
+          "api_call",
+          "user_output",
+          "vectorstore",
+          "log_file"
+        ],
+        "data_transformations": [
+          "query decomposition (planning sub-queries)",
+          "web/document search",
+          "scraping",
+          "context curation",
+          "combination and summarization",
+          "sanitization",
+          "result caching",
+          "formatting (concatenation, citation formatting)"
+        ],
+        "flow_description": "The tool takes a research query (user_input), possibly with constraints (query_domains), then decomposes the query into sub-queries using planning logic. For each sub-query, it uses retrievers (web search, API calls, MCP, or document loaders) to collect relevant content from web_content, api_response, or file_content. Web scraping and document loading retrieve raw data and content, which is then curated, summarized, and contextually combined. Any results or intermediate data may be streamed to end-users (user_output, stream_output) or logged (log_file), and final research context is written to files (file_write). LLMs may be prompted with constructed queries (llm_prompt), and their output is integrated back into the flow. All stages may include caching, logging, and sanitization steps.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "web_request",
+            "risk_level": "medium",
+            "reason": "User queries may be sent verbatim to search engines or APIs, potentially leaking sensitive input to third parties."
+          },
+          {
+            "from": "web_content",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "Untrusted scraped data may be injected into LLMs, posing risks of prompt injection or amplification of unsafe content."
+          },
+          {
+            "from": "api_response",
+            "to": "file_write",
+            "risk_level": "low",
+            "reason": "Information from untrusted external sources is saved to the local filesystem; risk is moderate unless files are later executed."
+          },
+          {
+            "from": "api_response",
+            "to": "vectorstore",
+            "risk_level": "low",
+            "reason": "External information is indexed for future queries, which could result in memorization of sensitive or inaccurate data."
+          },
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "Directly including user input in LLM prompts can enable prompt injection attacks or privacy leaks if not properly sanitized."
+          }
+        ]
+      },
+      "vulnerabilities": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "prompt_injection",
+            "severity": "high",
+            "description": "Untrusted web or document content is directly injected into LLM prompts without robust sanitization, enabling prompt injection and manipulation of the agent’s behavior.",
+            "attack_scenario": "1. An attacker creates a webpage containing malicious text with prompt injection payloads (e.g., instructions to leak sensitive data or alter agent decisions).\n2. The agent’s retriever collects this content during a normal web search via ResearchConductor._get_context_by_web_search or _scrape_data_by_urls.\n3. The scraped content is passed to context_manager.get_similar_content_by_query and then included in LLM prompts for report generation or further summarization without strict sanitization.\n4. The LLM interprets the injected instructions, leading to information disclosure, incorrect report generation, or potential command execution if chained workflows are present.",
+            "end_to_end_impact": [
+              "Malicious web content causes agent to leak internal prompt context or sensitive results.",
+              "Agent misfollows research or reporting steps, producing attacker-controlled outputs.",
+              "Unintended actions (e.g., arbitrary file writes or commands) if privileged tasks are downstream of LLM output."
+            ],
+            "evidence": "The dataflow shows web_content is gathered, transformed (sometimes concatenated but not sanitized), and injected into LLM prompts in methods like _get_context_by_web_search and context_manager.get_similar_content_by_query. No explicit sanitization steps are shown before LLM interaction.",
+            "mitigation": "Apply strong sanitization, filtering, and validation to all external content before it is included in LLM prompts; implement content safety checks and consider prompt escaping strategies."
+          },
+          {
+            "type": "information_disclosure",
+            "severity": "medium",
+            "description": "User query data and results are transmitted to third-party APIs and web search engines without explicit user warning or redaction.",
+            "attack_scenario": "1. User enters a confidential query.\n2. ResearchConductor forwards the query to web retrievers or MCP APIs verbatim.\n3. Third-party providers can collect and store sensitive user data without user knowledge.",
+            "end_to_end_impact": [
+              "Leakage of sensitive or proprietary user questions to search engines/APIs.",
+              "Persisted logs at third-party services with sensitive queries."
+            ],
+            "evidence": "Sensitive_flows indicate user_input flows directly to web_request/api_call without redaction or warning.",
+            "mitigation": "Add user warnings, configurable redaction, and query minimization features before sending requests to third-party APIs."
+          },
+          {
+            "type": "data_poisoning",
+            "severity": "medium",
+            "description": "External content retrieved from untrusted sources is indexed into a vectorstore without validation, enabling long-term poisoning or biasing of search context.",
+            "attack_scenario": "1. An attacker repeatedly publishes misleading or malicious content at indexed URLs.\n2. The agent scrapes and then indexes this data into the vectorstore.\n3. Subsequent research tasks on similar queries retrieve attacker-controlled, inaccurate, or malicious results.",
+            "end_to_end_impact": [
+              "Corruption or bias of long-term agent memory and context.",
+              "Persistent delivery of attacker-controlled information to all downstream research tasks."
+            ],
+            "evidence": "The dataflow description and code show document and web content (potentially unvalidated) being loaded into self.researcher.vector_store.",
+            "mitigation": "Add validation, deduplication, and content-checking steps before indexing new data into long-lived stores."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "prompt_injection",
+            "source": "web_content",
+            "destination": "llm_prompt",
+            "severity": "high",
+            "exploitability": "easy"
+          },
+          {
+            "type": "information_disclosure",
+            "source": "user_input",
+            "destination": "api_call",
+            "severity": "medium",
+            "exploitability": "easy"
+          },
+          {
+            "type": "data_poisoning",
+            "source": "api_response",
+            "destination": "vectorstore",
+            "severity": "medium",
+            "exploitability": "medium"
+          }
+        ],
+        "threat_model": [
+          "External attacker crafting malicious web content for prompt injection",
+          "Passive attacker at third-party search/API providers collecting user queries",
+          "Persistent attacker corrupting agent context via repeated web-based data poisoning"
+        ],
+        "overall_risk": "high",
+        "risk_summary": "The ResearchConductor tool presents a high security risk due to its exposure to prompt injection through web content, potential for user query leakage to third parties, and the risk of long-term data poisoning in vectorstores. Without strong input sanitization and output validation, the agent is susceptible to high-impact exploitation scenarios."
+      }
+    },
+    {
+      "tool_name": "ReportGenerator",
+      "position": "gpt_researcher/skills/writer.py:ReportGenerator",
+      "discovered_at": "2025-11-12 22:35:39",
+      "tool_info": {
+        "tool_name": "ReportGenerator",
+        "position": "gpt_researcher/skills/writer.py:ReportGenerator",
+        "description": "Generates research reports, including introduction, conclusion, subtopics, and section titles, from research context.",
+        "functionality": "ReportGenerator is responsible for assembling a complete research report based on the context and research parameters provided by the Researcher. It manages the structure and content by invoking asynchronous routines for generating the core report, introduction, conclusion, extracting subtopics, and producing draft section titles. The class forwards research data and configuration options to helper and LLM-based functions, streams intermediate content to web sockets for UX, and returns results as markdown or structured text.",
+        "parameters": [
+          {
+            "name": "researcher",
+            "type": "object (likely GPTResearcher or similar)",
+            "purpose": "Supplies query, report type/source/tone/configuration, research context, web socket, and additional state used for report generation."
+          }
+        ],
+        "return_type": "async string (for main routines)",
+        "return_description": "Asynchronous methods primarily return a string that contains the generated content for the report, its introduction, conclusion, or titles. Helper methods may return lists or JSON, depending on invoked routine."
+      },
+      "dataflow": {
+        "tool_name": "ReportGenerator",
+        "position": "gpt_researcher/skills/writer.py:ReportGenerator",
+        "data_sources": [
+          "user_input",
+          "research_context",
+          "web_content",
+          "external_context",
+          "llm_output"
+        ],
+        "data_destinations": [
+          "llm_prompt",
+          "user_output",
+          "websocket",
+          "file_write"
+        ],
+        "data_transformations": [
+          "structuring/formatting",
+          "string concatenation",
+          "custom prompt injection",
+          "json serialization",
+          "section title extraction",
+          "subtopic extraction",
+          "report composition"
+        ],
+        "flow_description": "User input (query, research parameters) and research context (potentially gathered from web or local documents) are used to construct report parameters. These parameters are provided to helper and LLM-based routines that generate the report, its introduction, and conclusion. Subtopic extraction and section title generation are also facilitated through LLM-based functions or algorithms. Generated results (as markdown or text) are streamed to web sockets for user feedback, can be written to output files, and are made available as user_output. The flow may include custom prompts, merging of researcher state, and reporting of selected images as JSON.",
+        "sensitive_flows": [
+          {
+            "from": "web_content",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "Web content (research context) may be incorporated into LLM prompts without strict sanitization, allowing prompt injection risks."
+          },
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "Arbitrary user-supplied query and parameters can influence the prompt provided to the report-writing LLMs."
+          },
+          {
+            "from": "llm_output",
+            "to": "file_write",
+            "risk_level": "low",
+            "reason": "Generated report content, which could be manipulated if earlier stages are compromised, is written to disk; if not validated, could later be misused."
+          }
+        ]
+      },
+      "vulnerabilities": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "prompt_injection",
+            "severity": "medium",
+            "description": "Web or user-supplied context can be injected into LLM prompts for report generation with limited or no sanitization, enabling prompt injection attacks.",
+            "attack_scenario": "1. An attacker injects harmful/instructive content into a web page or document.\n2. The agent retrieves this as part of 'research context' via the researcher object.\n3. The 'context' is copied into the report parameter for LLM prompt construction (e.g., generate_report, write_report_introduction, etc). \n4. The LLM interprets attacker-supplied meta-prompts, causing breakdowns such as inappropriate summarization, disclosure of sensitive workflow info, or arbitrary LLM-driven manipulations in the report.",
+            "end_to_end_impact": [
+              "Injected instructions cause LLM to deviate from intended workflow or output attacker-controlled content.",
+              "Sensitive formatting or hardcoded agent behavior leaks via LLM-generated outputs.",
+              "Report conclusions/intros/sections are manipulated, misleading readers or exfiltrating information."
+            ],
+            "evidence": "write_report, write_introduction, and similar routines directly use self.researcher.context (populated from upstream untrusted content) as part of LLM input. No explicit sanitization is shown in code/dataflow.",
+            "mitigation": "Add strict sanitization/validation of researched context prior to inclusion in LLM prompts and outputs. Consider prompt-escaping/neutral formatting for all inserted content."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "prompt_injection",
+            "source": "web_content",
+            "destination": "llm_prompt",
+            "severity": "medium",
+            "exploitability": "easy"
+          },
+          {
+            "type": "prompt_injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "Web adversary crafting malicious content to manipulate LLM-generated outputs and workflow",
+          "User intentionally or accidentally triggering prompt injection via crafted queries or custom prompts"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "ReportGenerator is susceptible to prompt injection from both untrusted research context and user input, which, while not directly exposing system-level privilege, can impact data integrity and agent output reliability."
+      }
+    },
+    {
+      "tool_name": "ContextManager",
+      "position": "gpt_researcher/skills/context_manager.py:ContextManager",
+      "discovered_at": "2025-11-12 22:37:04",
+      "tool_info": {
+        "tool_name": "ContextManager",
+        "position": "gpt_researcher/skills/context_manager.py:ContextManager",
+        "description": "Manages and retrieves the most relevant contextual information for a researcher agent's query using various compression and similarity techniques.",
+        "functionality": "ContextManager serves as an intermediate orchestrator for context selection and similarity matching in the agent's workflow. It retrieves content from memory, draft sections, or a vector store by leveraging compressor classes. For a given query and data (pages, vector stores, or authored drafts), it computes similarity scores (often using embeddings) and selects the most relevant content for downstream use in report-writing or research summarization. The methods are asynchronous, support filtering and thresholding, and can aggregate content from different query variants for comprehensive coverage.",
+        "parameters": [
+          {
+            "name": "researcher",
+            "type": "object (likely GPTResearcher or similar)",
+            "purpose": "Supplies the context manager with embeddings, prompt family, socket, config, and results needed for context selection."
+          }
+        ],
+        "return_type": "async list (of strings or dicts)",
+        "return_description": "Returns a list of the most content-relevant items (strings or dicts), such as relevant context for a research query, supporting improved report accuracy downstream."
+      },
+      "dataflow": {
+        "tool_name": "ContextManager",
+        "position": "gpt_researcher/skills/context_manager.py:ContextManager",
+        "data_sources": [
+          "user_input",
+          "query",
+          "web_content",
+          "document",
+          "vectorstore",
+          "written_contents"
+        ],
+        "data_destinations": [
+          "llm_prompt",
+          "user_output",
+          "research_context"
+        ],
+        "data_transformations": [
+          "embedding computation",
+          "similarity calculation",
+          "compression",
+          "filtering",
+          "aggregation",
+          "async parallel querying",
+          "subsetting (max_results)"
+        ],
+        "flow_description": "User queries, web or document content, and previously written contents are processed via similarity/compression tools to extract relevant semantic context for a given task. The tool uses embedding-based similarity and compressors to select and condense the most relevant data, which is then output as contextual research input for LLMs, user display, or agent workspace. Parallel asynchronous processing is often used for batched querying over multiple subtopics or section titles.",
+        "sensitive_flows": [
+          {
+            "from": "web_content",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "Similarity-selected data from untrusted web/documents may be forwarded to LLMs for summarization or reporting without appropriate validation."
+          },
+          {
+            "from": "user_input",
+            "to": "research_context",
+            "risk_level": "low",
+            "reason": "User queries directly affect which content is prioritized, possibly enabling subtle data selection attacks if not bounded."
+          }
+        ]
+      },
+      "vulnerabilities": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "prompt_injection",
+            "severity": "medium",
+            "description": "The context selection process may pass untrusted web/document content through to LLM prompts without sufficient sanitization, enabling prompt injection attack vectors.",
+            "attack_scenario": "1. An attacker publishes a web page or document containing harmful prompt injection strings. 2. The agent ingests this content, and ContextManager selects it as most relevant using semantic similarity. 3. This content is later passed to LLM-based report or summary generation, resulting in the LLM following the attacker's instructions.",
+            "end_to_end_impact": [
+              "Malicious document or web content results in LLM outputting attacker-chosen text or information disclosure.",
+              "LLM agent behavior is manipulated, potentially subverting research findings.",
+              "Chained LLM tasks could amplify or propagate the attack."
+            ],
+            "evidence": "get_similar_content_by_query and related methods can return user-controlled or web-sourced data with no explicit sanitization before output to downstream LLM prompts.",
+            "mitigation": "Apply sanitization/validation to content retrieved from untrusted sources before using it in LLM prompts. Consider content filtering for unsafe instructions or code, and prompt-escaping for trusted formatting."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "prompt_injection",
+            "source": "web_content",
+            "destination": "llm_prompt",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "External or web adversary introducing prompt injection strings into the agent's ingest pipeline",
+          "Untrusted content prioritized via semantic similarity, allowing low-effort attacks"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "ContextManager exposes medium risk due to potential for prompt injection originating from web or document content being selected and passed forward to LLMs without explicit sanitization."
+      }
+    },
+    {
+      "tool_name": "DeepResearchSkill",
+      "position": "gpt_researcher/skills/deep_research.py:DeepResearchSkill",
+      "discovered_at": "2025-11-12 22:38:19",
+      "tool_info": {
+        "tool_name": "DeepResearchSkill",
+        "position": "gpt_researcher/skills/deep_research.py:DeepResearchSkill",
+        "description": "Performs automated, multi-depth, multi-breadth iterative research using LLMs, web and API search, and context extraction.",
+        "functionality": "DeepResearchSkill conducts structured, multi-step research processes by generating follow-up queries, recursively gathering information, extracting learnings and citations, and iteratively diving into sub-questions. It leverages LLMs to construct search queries and research plans, gathers data from web/API retrievers, and condenses context using word limits and concurrency controls. Research progress (breadth, depth) is tracked, supporting parallel operations. The skill culminates by assembling a trimmed, cited context summary for use by the main agent or reporting layer.",
+        "parameters": [
+          {
+            "name": "researcher",
+            "type": "object (likely GPTResearcher or similar)",
+            "purpose": "Provides configuration, query, web socket, tone, and state for the deep research process."
+          }
+        ],
+        "return_type": "async string or dict (depending on method)",
+        "return_description": "Public async methods return a string (final context) or a dictionary of structured results (learnings, citations, context), enabling higher-level agents to use the deeply-aggregated research outcome."
+      },
+      "dataflow": {
+        "tool_name": "DeepResearchSkill",
+        "position": "gpt_researcher/skills/deep_research.py:DeepResearchSkill",
+        "data_sources": [
+          "user_input",
+          "web_content",
+          "api_response",
+          "llm_output",
+          "query_results"
+        ],
+        "data_destinations": [
+          "llm_prompt",
+          "user_output",
+          "research_context",
+          "research_sources"
+        ],
+        "data_transformations": [
+          "question/goal generation (via LLM)",
+          "recursive research planning",
+          "concurrent API/web queries",
+          "context aggregation and trimming",
+          "embedding/contextual similarity",
+          "citation extraction",
+          "text formatting and joining"
+        ],
+        "flow_description": "The tool generates follow-up research queries and goals via LLMs, issues multiple searches using web/APIs, and collects structured responses. It recursively generates sub-questions and continues research to specified depth and breadth. Gathered context, learnings, citations, and sources are aggregated, deduplicated, and may be trimmed for size. Aggregated results form an in-depth research context that can be used for reporting or user presentation.",
+        "sensitive_flows": [
+          {
+            "from": "web_content",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "Web data fetched recursively could include attacker-supplied input, which may eventually be synthesized into LLM prompts."
+          },
+          {
+            "from": "llm_output",
+            "to": "research_context",
+            "risk_level": "low",
+            "reason": "LLM-generated recursive queries and context form part of the agent's knowledge, which may carry forward biases or subtle manipulation."
+          }
+        ]
+      },
+      "vulnerabilities": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "prompt_injection",
+            "severity": "medium",
+            "description": "External web content or API responses, gathered recursively, can be included directly in LLM prompt inputs for summaries, learning extraction, or query generation, creating risk for prompt injection and subsequent agent misbehavior.",
+            "attack_scenario": "1. Attacker prepares a malicious document or web page with prompt injection payloads designed to manipulate the LLM's instructions or force output leakage. 2. The agent, during its recursive research process, encounters and ingests this content as part of its deep research rounds. 3. Because the research workflow automatically includes web content context in LLM message chains (e.g., when constructing new research queries or extracting learnings), the malicious content is injected into the active prompt. 4. The LLM follows attacker-supplied prompts, causing leakage, workflow deviation, or subverted outputs.",
+            "end_to_end_impact": [
+              "Disclosure or exfiltration of sensitive data or context via LLM output.",
+              "Subverted or attacker-controlled research conclusions within recursively aggregated reports.",
+              "Corrupted research loop—recursive nature amplifies prompt injection and bias in subsequent iterations."
+            ],
+            "evidence": "The tool recursively gathers search/web/API context, aggregates it, and directly uses it in LLM prompts for generating further queries and extracting insights. There is no evidence of explicit sanitization or filtering prior to LLM invocation.",
+            "mitigation": "Apply input sanitization and filtering to content prior to LLM prompt construction; explicitly scan and redact known prompt injection patterns from recursively handled content."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "prompt_injection",
+            "source": "web_content",
+            "destination": "llm_prompt",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "Adversarial web content repeatedly ingested and included recursively in deep research",
+          "Attackers exploiting automated recursive research pipelines for prompt injection amplification"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "DeepResearchSkill carries a medium risk of prompt injection and workflow manipulation via untrusted web and API content; its recursive and aggregation-oriented design amplifies these risks across the agent ecosystem."
+      }
+    },
+    {
+      "tool_name": "SourceCurator",
+      "position": "gpt_researcher/skills/curator.py:SourceCurator",
+      "discovered_at": "2025-11-12 22:39:18",
+      "tool_info": {
+        "tool_name": "SourceCurator",
+        "position": "gpt_researcher/skills/curator.py:SourceCurator",
+        "description": "Ranks and filters research sources based on relevance, credibility, and reliability using LLM-based evaluation.",
+        "functionality": "SourceCurator receives a list of source documents (such as URLs or snippets) and uses a language model to rank them by credibility and relevance to the research task. It constructs a prompt (possibly including the research query, agent role, and source data) and passes it to an LLM chat-completion API. The LLM responds with a JSON-encoded, curated list of the top sources, which is decoded for downstream consumption. Logging, user feedback via WebSocket, and error handling are included. If LLM evaluation fails, the original uncurated source list is returned as a fallback.",
+        "parameters": [
+          {
+            "name": "researcher",
+            "type": "object (likely GPTResearcher or similar)",
+            "purpose": "Provides context/config for LLM prompts, research query, and handles communication/feedback."
+          },
+          {
+            "name": "source_data",
+            "type": "List",
+            "purpose": "List of sources to evaluate and rank for research quality."
+          },
+          {
+            "name": "max_results",
+            "type": "int",
+            "purpose": "The number of top sources to return from LLM curation (default 10)."
+          }
+        ],
+        "return_type": "List",
+        "return_description": "A list of curated sources (typically URLs or documents) ranked by the LLM for relevance and credibility; returns original list on error."
+      },
+      "dataflow": {
+        "tool_name": "SourceCurator",
+        "position": "gpt_researcher/skills/curator.py:SourceCurator",
+        "data_sources": [
+          "source_data",
+          "research_query",
+          "user_input",
+          "researcher_context"
+        ],
+        "data_destinations": [
+          "llm_prompt",
+          "llm_output",
+          "user_output"
+        ],
+        "data_transformations": [
+          "prompt building",
+          "json serialization/deserialization",
+          "ranking/filtering in LLM",
+          "reasoning/formatting"
+        ],
+        "flow_description": "A list of candidate sources (e.g., URLs, snippets) and the research query/details are packaged as a task-specific prompt, which is sent to an LLM chat completion API. The LLM returns a JSON list of ranked sources, which is deserialized and streamed for user or downstream consumption. Logging and WebSocket feedback inform about the curation process throughout. If LLM curation fails, the raw, unfiltered source list is returned.",
+        "sensitive_flows": [
+          {
+            "from": "source_data",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "Untrusted external data is injected into LLM prompts for downstream processing; possible prompt injection or manipulation of LLM ranking."
+          },
+          {
+            "from": "llm_output",
+            "to": "user_output",
+            "risk_level": "low",
+            "reason": "LLM-generated ranking is surfaced to users; reliability depends on LLM alignment and prompt integrity, but direct system privilege abuse is unlikely."
+          }
+        ]
+      },
+      "vulnerabilities": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "prompt_injection",
+            "severity": "medium",
+            "description": "Untrusted source data is injected into LLM prompts with little or no sanitization, allowing attackers to manipulate LLM output or workflow (e.g., by using prompt injection attacks).",
+            "attack_scenario": "1. Attacker supplies a source (e.g., malicious URL, snippet, or payload in source_data) designed to disrupt or manipulate the LLM-based curation process. 2. This string or document is sent as-is (via the prompt_family.curate_sources prompt fill-in) to the chat_completion LLM. 3. The LLM misinterprets or executes the attacker's instructions in its output, producing manipulated or misleading rankings or even leaking content or confidential reasoning.",
+            "end_to_end_impact": [
+              "LSupply chain manipulation: Attacker-controlled sources are ranked highly or cause omission of legitimate sources.",
+              "Data exfiltration or LLM exploitation: With prompt injection, LLM curation could be subverted to leak information or undermine agent trust.",
+              "Rogue LLM output corrupts downstream research or agent actions relying on curated sources."
+            ],
+            "evidence": "curate_sources passes untrusted source_data directly into LLM prompts without explicit filtering, encoding, or escaping.",
+            "mitigation": "Apply explicit escaping or validation to all source_data before including in prompt; consider inserting delimiters or using secure templates; validate all output before use in downstream processes."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "prompt_injection",
+            "source": "source_data",
+            "destination": "llm_prompt",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "External adversary submits attacker-controlled sources for LLM curation",
+          "Prompt injection or data poisoning in LLM ranking outputs"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "SourceCurator carries a medium risk due to the possibility of prompt injection via untrusted source data, which could compromise LLM output, workflow integrity, or downstream data quality."
+      }
+    }
+  ],
+  "environment": {
+    "docker_required": true,
+    "dependencies": [
+      "jsonpatch",
+      "packaging",
+      "langchain-core",
+      "psutil",
+      "ollama",
+      "uvicorn",
+      "typing-inspect",
+      "langgraph-sdk",
+      "requests",
+      "markdown2",
+      "tqdm",
+      "tinycss2",
+      "aiofiles",
+      "jsonschema",
+      "soupsieve",
+      "idna",
+      "unstructured-client",
+      "litellm",
+      "langgraph",
+      "starlette",
+      "duckduckgo-search",
+      "numpy",
+      "wrapt",
+      "h11",
+      "arxiv",
+      "filetype",
+      "frozenlist",
+      "langchain-ollama",
+      "yarl",
+      "requests-toolbelt",
+      "multidict",
+      "urllib3",
+      "zopfli",
+      "feedparser",
+      "cryptography",
+      "pydantic",
+      "dataclasses-json",
+      "jsonschema-specifications",
+      "tenacity",
+      "langchain-text-splitters",
+      "cssselect2",
+      "filelock",
+      "htmldocx",
+      "httpx-sse",
+      "mypy-extensions",
+      "pycparser",
+      "charset-normalizer",
+      "websockets",
+      "python-multipart",
+      "md2pdf",
+      "langgraph-checkpoint",
+      "loguru",
+      "primp",
+      "mistune",
+      "fonttools",
+      "pyyaml",
+      "orjson",
+      "referencing",
+      "aiohttp",
+      "propcache",
+      "kiwisolver",
+      "docopt",
+      "distro",
+      "openai",
+      "attrs",
+      "langchain-mcp-adapters",
+      "six",
+      "markdown",
+      "tinyhtml5",
+      "typing-extensions",
+      "click",
+      "nest-asyncio",
+      "tokenizers",
+      "typing-inspection",
+      "langchain-community",
+      "sse-starlette",
+      "certifi",
+      "regex",
+      "beautifulsoup4",
+      "langgraph-cli",
+      "lxml",
+      "pydyf",
+      "ormsgpack",
+      "langchain-openai",
+      "mcp",
+      "jiter",
+      "pydantic-core",
+      "httpcore",
+      "jsonpointer",
+      "json5",
+      "langsmith",
+      "huggingface-hub",
+      "json-repair",
+      "fastapi",
+      "marshmallow",
+      "httpx",
+      "joblib",
+      "pymupdf",
+      "rapidfuzz",
+      "jinja2",
+      "tiktoken",
+      "python-dotenv",
+      "zstandard",
+      "chardet",
+      "cffi",
+      "webencodings",
+      "colorama",
+      "httpx-aiohttp",
+      "python-docx",
+      "sgmllib3k",
+      "sniffio",
+      "importlib-metadata",
+      "rpds-py",
+      "brotli",
+      "unstructured",
+      "pydantic-settings",
+      "markupsafe",
+      "zipp",
+      "fsspec",
+      "greenlet",
+      "olefile",
+      "pillow",
+      "sqlalchemy",
+      "win32-setctime"
+    ],
+    "config_files": [
+      ".env.example",
+      ".env",
+      "requirements.txt",
+      "pyproject.toml"
+    ],
+    "framework": "FastAPI, Uvicorn (backend); CLI option; LangChain, mcp, asyncio ecosystem",
+    "entry_points": [
+      "main.py",
+      "cli.py"
+    ]
+  },
+  "todos": [
+    {
+      "content": "Explore the gpt-researcher codebase and identify entry points, config, and dependencies",
+      "status": "pending",
+      "activeForm": "Exploring the codebase for entry points and config files",
+      "id": "explore_the_gpt_researcher_codebase_and_identify_e",
+      "created_at": "2025-11-12T22:32:43.894041",
+      "updated_at": "2025-11-12T22:32:43.894041"
+    },
+    {
+      "content": "Save identified environment info for gpt-researcher agent",
+      "status": "pending",
+      "activeForm": "Saving environment info",
+      "id": "save_identified_environment_info_for_gpt_researche",
+      "created_at": "2025-11-12T22:32:43.894076",
+      "updated_at": "2025-11-12T22:32:43.894076"
+    },
+    {
+      "content": "Search for tool implementations across codebase",
+      "status": "pending",
+      "activeForm": "Searching for tool definitions",
+      "id": "search_for_tool_implementations_across_codebase",
+      "created_at": "2025-11-12T22:32:43.894094",
+      "updated_at": "2025-11-12T22:32:43.894094"
+    },
+    {
+      "content": "For each discovered tool: extract code, analyze tool info, dataflow, vulnerabilities, and save results.",
+      "status": "pending",
+      "activeForm": "Analyzing discovered tools",
+      "id": "for_each_discovered_tool_extract_code_analyze_tool",
+      "created_at": "2025-11-12T22:32:43.894112",
+      "updated_at": "2025-11-12T22:32:43.894112"
+    },
+    {
+      "content": "Once at least five tools are analyzed, generate the security report.",
+      "status": "pending",
+      "activeForm": "Generating security report",
+      "id": "once_at_least_five_tools_are_analyzed_generate_the",
+      "created_at": "2025-11-12T22:32:43.894126",
+      "updated_at": "2025-11-12T22:32:43.894126"
+    }
+  ],
+  "analysis_log": [
+    {
+      "timestamp": "2025-11-12 22:32:53",
+      "event": "environment_info_updated",
+      "details": {
+        "docker_required": true,
+        "framework": "FastAPI, Uvicorn (backend); CLI option; LangChain, mcp, asyncio ecosystem",
+        "dependencies_count": 124,
+        "config_files_count": 4
+      }
+    },
+    {
+      "timestamp": "2025-11-12 22:34:37",
+      "event": "tool_analyzed",
+      "details": {
+        "tool_name": "ResearchConductor",
+        "position": "gpt_researcher/skills/researcher.py:ResearchConductor",
+        "has_vulnerabilities": true,
+        "overall_risk": "high"
+      }
+    },
+    {
+      "timestamp": "2025-11-12 22:35:39",
+      "event": "tool_analyzed",
+      "details": {
+        "tool_name": "ReportGenerator",
+        "position": "gpt_researcher/skills/writer.py:ReportGenerator",
+        "has_vulnerabilities": true,
+        "overall_risk": "medium"
+      }
+    },
+    {
+      "timestamp": "2025-11-12 22:37:04",
+      "event": "tool_analyzed",
+      "details": {
+        "tool_name": "ContextManager",
+        "position": "gpt_researcher/skills/context_manager.py:ContextManager",
+        "has_vulnerabilities": true,
+        "overall_risk": "medium"
+      }
+    },
+    {
+      "timestamp": "2025-11-12 22:38:19",
+      "event": "tool_analyzed",
+      "details": {
+        "tool_name": "DeepResearchSkill",
+        "position": "gpt_researcher/skills/deep_research.py:DeepResearchSkill",
+        "has_vulnerabilities": true,
+        "overall_risk": "medium"
+      }
+    },
+    {
+      "timestamp": "2025-11-12 22:39:18",
+      "event": "tool_analyzed",
+      "details": {
+        "tool_name": "SourceCurator",
+        "position": "gpt_researcher/skills/curator.py:SourceCurator",
+        "has_vulnerabilities": true,
+        "overall_risk": "medium"
+      }
+    }
+  ]
+}

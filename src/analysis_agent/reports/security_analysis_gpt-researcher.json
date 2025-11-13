@@ -1,0 +1,1448 @@
+{
+  "agent_name": "gpt-researcher",
+  "framework": "",
+  "entry_point": "",
+  "analysis_start": "2025-11-12 10:01:14",
+  "tools": [
+    {
+      "name": "vector_store_tool",
+      "type": "agent_tool",
+      "description": "A tool that retrieves relevant information from a vector store based on a query.",
+      "functionality": "The vector_store_tool is designed to create a retrieval function that consults a vector store to find relevant contexts or information based on a given query. It uses a retriever, which is configured to return the top 4 most relevant results. The tool is intended to be used whenever there is a need to find information that is not immediately known, by leveraging the stored vectors to find the closest matches to the query.",
+      "position": "backend/chat/chat.py:vector_store_tool",
+      "parameters": [
+        {
+          "name": "vector_store",
+          "type": "object",
+          "purpose": "The vector_store parameter is an object that provides the as_retriever method, which is used to create a retriever capable of finding relevant information based on a query."
+        }
+      ],
+      "return_type": "function",
+      "return_description": "The return value is a function named retrieve_info, which takes a query as input and returns the top 4 most relevant contexts or information from the vector store.",
+      "dataflow": {
+        "sources": [
+          "user_input"
+        ],
+        "destinations": [
+          "user_output"
+        ],
+        "transformations": [
+          "retrieval"
+        ],
+        "flow_description": "The user provides a query as input, which is used to retrieve relevant information from a vector store. The vector store acts as a retriever, fetching the top 4 relevant contexts based on the query. The retrieved information is then returned as output to the user.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "The flow involves user input being used to query a vector store, which may contain sensitive or proprietary information. The retrieved data is then directly output to the user, which could expose sensitive information if not properly managed."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "information_disclosure",
+            "severity": "medium",
+            "description": "The tool retrieves information from a vector store based on user input and directly outputs it to the user. If the vector store contains sensitive or proprietary information, this could lead to unauthorized disclosure.",
+            "attack_scenario": "An attacker provides a crafted query that retrieves sensitive information from the vector store, which is then directly output to them without any filtering or validation.",
+            "end_to_end_impact": [
+              "An attacker retrieves confidential business information from the vector store.",
+              "Sensitive user data stored in the vector store is exposed to unauthorized users.",
+              "Proprietary algorithms or models stored in the vector store are leaked."
+            ],
+            "evidence": "The data flow analysis indicates a direct flow from user input to user output via the vector store, with no intermediate checks or filters.",
+            "mitigation": "Implement access controls and filtering mechanisms to ensure only authorized users can retrieve sensitive information. Consider adding logging and monitoring to detect unauthorized access attempts."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "information_disclosure",
+            "source": "user_input",
+            "destination": "user_output",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "unauthorized_information_access",
+          "data_leakage"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "The primary risk is unauthorized access to sensitive information stored in the vector store due to lack of access controls and filtering mechanisms."
+      }
+    },
+    {
+      "name": "conduct_research_with_tools",
+      "type": "agent_tool",
+      "description": "This tool conducts intelligent research using a language model with bound tools to process a research query.",
+      "functionality": "The 'conduct_research_with_tools' function utilizes a language model (LLM) integrated with multiple tools to perform research based on a given query. It first checks if any tools are selected, logs the number of tools, and then initializes a language model provider with specified configurations. The LLM is bound with the selected tools, and a research prompt is generated. The LLM is invoked with this prompt, and it may make tool calls to gather information. Each tool call is executed, and the results are processed and formatted. The function also includes the LLM's own analysis as part of the results. The entire process is logged for transparency and debugging.",
+      "position": "gpt_researcher/mcp/research.py:conduct_research_with_tools",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "str",
+          "purpose": "The research query that the tool will use to conduct research."
+        },
+        {
+          "name": "selected_tools",
+          "type": "List",
+          "purpose": "A list of tools that are selected to be used in conjunction with the LLM for conducting research."
+        }
+      ],
+      "return_type": "List[Dict[str, str]]",
+      "return_description": "A list of dictionaries containing the research results, where each dictionary represents a result with keys like 'title', 'href', and 'body'.",
+      "dataflow": {
+        "sources": [
+          "user_input",
+          "llm_output"
+        ],
+        "destinations": [
+          "llm_prompt",
+          "user_output"
+        ],
+        "transformations": [
+          "concatenation",
+          "parsing",
+          "formatting"
+        ],
+        "flow_description": "The data flow begins with user_input in the form of a research query and a list of selected tools. This input is used to generate a research prompt (concatenation) which is sent to the LLM (llm_prompt). The LLM processes this prompt and may make tool calls, which are executed and their results are parsed and formatted. The LLM's own analysis is also included in the output. Finally, the combined results are returned to the user (user_output).",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "User input is directly used to generate prompts for the LLM, which could lead to unintended LLM behavior if the input is not properly validated or sanitized."
+          },
+          {
+            "from": "llm_output",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "The LLM's output, including any tool results, is directly returned to the user, which could expose sensitive information if not properly handled."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "high",
+            "description": "User input is directly used to generate prompts for the LLM, which could lead to unintended LLM behavior if the input is not properly validated or sanitized.",
+            "attack_scenario": "1. An attacker crafts a malicious research query containing prompt injection payloads. 2. The query is used to generate a research prompt without proper sanitization. 3. The LLM processes the prompt and executes unintended actions or generates incorrect results. 4. The attacker receives manipulated research results or causes the LLM to perform unauthorized operations.",
+            "end_to_end_impact": [
+              "Malicious query causes LLM to perform unauthorized actions.",
+              "Crafted prompts lead to incorrect research report generation.",
+              "Data exfiltration through manipulated LLM responses."
+            ],
+            "evidence": "The function `conduct_research_with_tools` uses the `query` parameter directly to generate the research prompt without any sanitization or validation.",
+            "mitigation": "Implement input validation and sanitization for the `query` parameter to prevent injection attacks. Consider using a whitelist approach for allowed input patterns."
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "severity": "medium",
+            "description": "LLM output, including tool results, is directly returned to the user, which could expose sensitive information or lead to unintended actions if not properly handled.",
+            "attack_scenario": "1. An attacker submits a query that manipulates the LLM to produce output that influences subsequent operations. 2. The LLM's output is used to control tool execution or other privileged operations. 3. The attacker leverages this to perform unauthorized actions or access sensitive data.",
+            "end_to_end_impact": [
+              "LLM output causes execution of unintended tool operations.",
+              "Sensitive information is leaked through manipulated LLM responses.",
+              "Unauthorized access to system resources via crafted LLM output."
+            ],
+            "evidence": "The LLM's output is directly included in the research results without additional validation or filtering, allowing potential manipulation of subsequent operations.",
+            "mitigation": "Implement strict validation and filtering of LLM outputs before using them in any privileged operations or returning them to the user."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "high",
+            "exploitability": "easy"
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "source": "llm_output",
+            "destination": "user_output",
+            "severity": "medium",
+            "exploitability": "medium"
+          }
+        ],
+        "threat_model": [
+          "Unauthorized actions via prompt injection",
+          "Sensitive data exposure through LLM output",
+          "Manipulation of tool operations via LLM responses"
+        ],
+        "overall_risk": "high",
+        "risk_summary": "The tool is vulnerable to prompt injection and indirect prompt injection attacks, which could lead to unauthorized actions, incorrect research results, and sensitive data exposure. Proper input validation and output filtering are necessary to mitigate these risks."
+      }
+    },
+    {
+      "name": "vector_store_tool",
+      "type": "agent_tool",
+      "description": "A tool that retrieves relevant information from a vector store based on a query.",
+      "functionality": "The vector_store_tool is designed to create a retrieval tool that can search a vector store for relevant information based on a given query. It uses a retriever, which is configured to return the top 4 most relevant results. The tool is decorated with a @tool decorator, indicating it is part of a larger system of tools. When invoked, it consults the vector store to find contexts that match the query, facilitating information retrieval in scenarios where the user lacks specific knowledge.",
+      "position": "backend/chat/chat.py:vector_store_tool",
+      "parameters": [
+        {
+          "name": "vector_store",
+          "type": "object",
+          "purpose": "The vector_store parameter is an object that represents the storage of vectors. It is used to create a retriever that can search for relevant information based on a query."
+        }
+      ],
+      "return_type": "function",
+      "return_description": "The return value is a function named retrieve_info, which takes a query as input and returns the top 4 relevant contexts from the vector store.",
+      "dataflow": {
+        "sources": [
+          "user_input"
+        ],
+        "destinations": [
+          "user_output"
+        ],
+        "transformations": [
+          "retrieval"
+        ],
+        "flow_description": "The user provides a query as input, which is used to retrieve relevant information from a vector store. The vector store acts as a retriever, fetching the top 4 relevant pieces of information based on the query. The retrieved information is then returned as output to the user.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "The flow involves user input being used to query a data store, which could potentially expose sensitive information if the vector store contains private data."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "medium",
+            "description": "The tool retrieves information from a vector store based on user input, which could be manipulated to inject malicious prompts or queries.",
+            "attack_scenario": "1. An attacker provides a specially crafted query as input. 2. The query is used to retrieve information from the vector store. 3. The retrieved information could contain malicious content that influences the behavior of the AI agent, leading to incorrect or unintended actions.",
+            "end_to_end_impact": [
+              "Malicious query causes the agent to retrieve and display sensitive information.",
+              "Crafted input leads to incorrect report generation by the AI agent.",
+              "Injected prompts result in data exfiltration through manipulated outputs."
+            ],
+            "evidence": "The code directly uses user input to query the vector store without any validation or sanitization, which could lead to prompt injection vulnerabilities.",
+            "mitigation": "Implement input validation and sanitization to ensure that queries do not contain malicious content. Consider using a whitelist of allowed query patterns or escaping potentially harmful characters."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "vector_store",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "Unauthorized access to sensitive information",
+          "Manipulation of AI agent behavior",
+          "Data exfiltration through crafted queries"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "The primary risk is from prompt injection vulnerabilities due to unvalidated user input being used to query the vector store, which could lead to unauthorized access to sensitive information or manipulation of the AI agent's behavior."
+      }
+    },
+    {
+      "name": "MCPRetriever",
+      "type": "agent_tool",
+      "description": "MCPRetriever is a tool that selects and utilizes the most relevant Model Context Protocol tools for efficient and targeted research execution.",
+      "functionality": "MCPRetriever implements a two-stage approach to enhance research efficiency. First, it selects 2-3 of the most relevant tools from all available MCP tools using a language model. Then, it conducts intelligent research by executing these selected tools. This method avoids the inefficiency of calling all tools and focuses on providing more targeted research results. The retriever requires a researcher instance to access server configurations, language model settings, and to track research costs.",
+      "position": "gpt_researcher/retrievers/mcp/retriever.py:MCPRetriever",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "str",
+          "purpose": "The search query that the retriever will use to find relevant tools and conduct research."
+        },
+        {
+          "name": "headers",
+          "type": "Optional[Dict[str, str]]",
+          "purpose": "Optional HTTP headers that may be used in requests during the research process."
+        },
+        {
+          "name": "query_domains",
+          "type": "Optional[List[str]]",
+          "purpose": "Optional list of domains to restrict the search to specific areas of interest."
+        },
+        {
+          "name": "websocket",
+          "type": "Optional",
+          "purpose": "Optional websocket connection for asynchronous communication during research."
+        },
+        {
+          "name": "researcher",
+          "type": "Optional",
+          "purpose": "An instance of a researcher that provides access to MCP configurations and other necessary settings."
+        }
+      ],
+      "return_type": "List[Dict[str, str]]",
+      "return_description": "The return value is a list of dictionaries, each representing a research result with relevant information obtained from the selected MCP tools.",
+      "dataflow": {
+        "sources": [
+          "user_input",
+          "llm_output",
+          "api_response"
+        ],
+        "destinations": [
+          "llm_prompt",
+          "api_call",
+          "user_output"
+        ],
+        "transformations": [
+          "parsing",
+          "selection",
+          "concatenation"
+        ],
+        "flow_description": "The MCPRetriever starts with user_input, which is parsed to determine the query and any additional parameters. It retrieves configurations and available tools via api_response. The LLM is prompted to select the most relevant tools based on the parsed input and available configurations. The selected tools are then used to execute research, with results being concatenated and formatted for user_output.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "User input is directly used to prompt the LLM, which could lead to unintended LLM behavior if not properly sanitized."
+          },
+          {
+            "from": "api_response",
+            "to": "llm_prompt",
+            "risk_level": "low",
+            "reason": "Data from API responses is used to inform LLM tool selection, but this is generally controlled and less likely to introduce risk."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "medium",
+            "description": "User input is directly used to prompt the LLM, which could lead to unintended LLM behavior if not properly sanitized.",
+            "attack_scenario": "1. An attacker provides a specially crafted input that includes instructions to the LLM to perform unintended actions. 2. The input is directly used in the LLM prompt without proper sanitization. 3. The LLM executes the unintended instructions, potentially leading to incorrect research results or data leakage.",
+            "end_to_end_impact": [
+              "Malicious input causes the LLM to generate incorrect research results.",
+              "Crafted input leads to data exfiltration via LLM responses.",
+              "Unintended actions are performed by the LLM due to manipulated input."
+            ],
+            "evidence": "The data flow analysis indicates that user_input is directly used to prompt the LLM, which is a medium risk for prompt injection.",
+            "mitigation": "Implement input validation and sanitization to ensure that user inputs do not contain harmful instructions or data that could manipulate the LLM."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "Prompt injection leading to incorrect research results",
+          "Data exfiltration via crafted LLM prompts",
+          "Unintended actions performed by the LLM"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "The primary risk identified is prompt injection due to direct use of user input in LLM prompts without proper sanitization, which could lead to unintended LLM behavior and data leakage."
+      }
+    },
+    {
+      "name": "MCPResearchSkill",
+      "type": "agent_tool",
+      "description": "A tool for executing research tasks using language models and associated tools, processing results into a standard format.",
+      "functionality": "MCPResearchSkill is designed to handle research execution by leveraging language models (LLMs) and associated tools. It manages the execution of research tasks, processes the results from these tools into a standardized format, and handles any errors that may occur during tool execution. This tool is essential for conducting research queries efficiently and ensuring that the results are consistent and reliable.",
+      "position": "gpt_researcher/mcp/research.py:MCPResearchSkill",
+      "parameters": [
+        {
+          "name": "cfg",
+          "type": "object",
+          "purpose": "Configuration settings required for initializing the research skill."
+        },
+        {
+          "name": "researcher",
+          "type": "object or None",
+          "purpose": "An optional parameter representing the researcher instance, if any, to be used with the tool."
+        },
+        {
+          "name": "query",
+          "type": "str",
+          "purpose": "The research query string that needs to be executed using the selected tools."
+        },
+        {
+          "name": "selected_tools",
+          "type": "List",
+          "purpose": "A list of tools selected for conducting the research query."
+        }
+      ],
+      "return_type": "List[Dict[str, str]]",
+      "return_description": "A list of dictionaries where each dictionary contains the results of the research query processed into a standard format.",
+      "dataflow": {
+        "sources": [
+          "user_input",
+          "llm_output"
+        ],
+        "destinations": [
+          "llm_prompt",
+          "user_output"
+        ],
+        "transformations": [
+          "parsing",
+          "sanitization"
+        ],
+        "flow_description": "The data flow begins with user_input, which is parsed and sanitized before being used to generate an llm_prompt. The LLM processes this prompt and produces llm_output, which is then formatted into a standard format and sent to user_output.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "User input needs to be carefully sanitized to prevent injection attacks or unintended LLM behavior."
+          },
+          {
+            "from": "llm_output",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "LLM output must be checked for accuracy and appropriateness before being presented to the user."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "high",
+            "description": "Untrusted user input is used to generate LLM prompts without sufficient sanitization, leading to potential prompt injection.",
+            "attack_scenario": "1. An attacker provides a specially crafted input that includes instructions to the LLM to perform unintended actions. 2. The input is parsed and used to generate an LLM prompt. 3. The LLM executes the unintended instructions, potentially leaking sensitive information or performing unauthorized actions.",
+            "end_to_end_impact": [
+              "Malicious input causes the LLM to disclose sensitive internal data.",
+              "Crafted input results in the LLM performing unauthorized actions.",
+              "The LLM generates incorrect or misleading research reports based on manipulated input."
+            ],
+            "evidence": "The data flow analysis indicates that user_input is directly transformed into llm_prompt without explicit mention of comprehensive sanitization steps.",
+            "mitigation": "Implement strict input validation and sanitization before using user input to generate LLM prompts. Consider using allow-lists for acceptable input patterns."
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "severity": "medium",
+            "description": "LLM output is used to control operations without adequate validation, potentially leading to unintended actions.",
+            "attack_scenario": "1. An attacker injects a prompt that manipulates the LLM to produce output controlling privileged operations. 2. The output is used to execute operations without proper validation. 3. This could lead to unauthorized file operations or command execution.",
+            "end_to_end_impact": [
+              "LLM output manipulates the system to execute unauthorized commands.",
+              "Privileged operations are performed based on manipulated LLM output."
+            ],
+            "evidence": "The flow from llm_output to user_output suggests that LLM output is used without sufficient checks, potentially allowing manipulation.",
+            "mitigation": "Implement strict validation of LLM output before using it to control operations. Ensure that only expected and safe operations are executed."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "high",
+            "exploitability": "easy"
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "source": "llm_output",
+            "destination": "user_output",
+            "severity": "medium",
+            "exploitability": "medium"
+          }
+        ],
+        "threat_model": [
+          "Unauthorized access through manipulated LLM prompts",
+          "Data leakage via crafted user inputs",
+          "Execution of unintended actions based on LLM output"
+        ],
+        "overall_risk": "high",
+        "risk_summary": "The tool is vulnerable to prompt injection and indirect prompt injection, which could lead to unauthorized actions and data leakage. Proper input validation and output checks are necessary to mitigate these risks."
+      }
+    },
+    {
+      "name": "vector_store_tool",
+      "type": "agent_tool",
+      "description": "A tool that retrieves relevant information from a vector store based on a query.",
+      "functionality": "The vector_store_tool is designed to create a retrieval tool that can query a vector store for relevant information. It uses a retriever, which is configured to return the top 4 most relevant results for a given query. The tool is decorated with a @tool decorator, indicating it is part of a larger system of tools. When the retrieve_info function is called with a query, it uses the retriever to find and return relevant contexts from the vector store.",
+      "position": "backend/chat/chat.py:vector_store_tool",
+      "parameters": [
+        {
+          "name": "vector_store",
+          "type": "VectorStore",
+          "purpose": "The vector store from which information will be retrieved. It provides the as_retriever method to create a retriever object."
+        }
+      ],
+      "return_type": "function",
+      "return_description": "The function returns a callable function named retrieve_info, which takes a query as input and returns the top 4 relevant contexts from the vector store.",
+      "dataflow": {
+        "sources": [
+          "user_input"
+        ],
+        "destinations": [
+          "user_output"
+        ],
+        "transformations": [
+          "retrieval"
+        ],
+        "flow_description": "The user provides a query as input, which is then used to retrieve relevant information from a vector store. The vector store acts as a retriever, fetching the top 4 relevant contexts based on the query. The retrieved information is then returned to the user as output.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "The flow involves user input which could potentially include sensitive information. The retrieval process should ensure that no sensitive data is inadvertently exposed or mishandled."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection (End-to-End)",
+            "severity": "medium",
+            "description": "The tool retrieves information based on user input without sanitization, which could lead to prompt injection attacks.",
+            "attack_scenario": "1. An attacker crafts a query that includes malicious instructions. 2. The query is sent to the vector store tool. 3. The tool retrieves and returns manipulated data that could influence subsequent operations or outputs.",
+            "end_to_end_impact": [
+              "Malicious query causes the agent to retrieve and display manipulated information.",
+              "Crafted prompts could lead to incorrect research or report generation.",
+              "Sensitive data could be exfiltrated if the retrieved information is manipulated."
+            ],
+            "evidence": "The retrieve_info function directly uses user input to query the vector store without any sanitization or validation.",
+            "mitigation": "Implement input validation and sanitization to ensure that queries do not contain harmful instructions or data."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "vector_store",
+            "severity": "medium",
+            "exploitability": "medium"
+          }
+        ],
+        "threat_model": [
+          "Prompt injection leading to data manipulation",
+          "Information disclosure through manipulated queries"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "The primary risk involves prompt injection due to unsanitized user input, which could lead to data manipulation and information disclosure."
+      }
+    },
+    {
+      "name": "generate_mcp_tool_selection_prompt",
+      "type": "agent_tool",
+      "description": "Generates a prompt for selecting the most relevant tools for a given research query using an LLM-based approach.",
+      "functionality": "This tool constructs a prompt designed to assist a language model in selecting the most relevant tools from a provided list for a specific research query. It takes into account the relevance of each tool based on its ability to provide information, data, or insights related to the query. The prompt includes criteria for selection, such as the ability to search or retrieve relevant content and complementarity among tools. The output is a structured JSON format that specifies the selected tools, their relevance scores, and the reasoning behind their selection.",
+      "position": "gpt_researcher/prompts.py:generate_mcp_tool_selection_prompt",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "str",
+          "purpose": "The research query for which relevant tools need to be selected."
+        },
+        {
+          "name": "tools_info",
+          "type": "List[Dict]",
+          "purpose": "A list containing metadata about the available tools that can be selected for the research query."
+        },
+        {
+          "name": "max_tools",
+          "type": "int",
+          "purpose": "The maximum number of tools to be selected as relevant for the research query."
+        }
+      ],
+      "return_type": "str",
+      "return_description": "A string containing a prompt formatted to guide a language model in selecting the most relevant tools for the given research query, including a JSON structure for the expected output.",
+      "dataflow": {
+        "sources": [
+          "user_input"
+        ],
+        "destinations": [
+          "llm_prompt"
+        ],
+        "transformations": [
+          "concatenation",
+          "json_serialization"
+        ],
+        "flow_description": "The function takes a research query and a list of tool metadata as input from the user. It then constructs a prompt by concatenating the query and tool information into a structured string format. The tool metadata is serialized into JSON format for inclusion in the prompt. The final prompt is intended for use as input to an LLM to assist in selecting the most relevant tools.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "User input is directly used to construct a prompt for an LLM, which could lead to unintended information exposure if sensitive data is included in the input."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "high",
+            "description": "The function directly incorporates user input into the LLM prompt without sanitization, allowing for potential prompt injection attacks.",
+            "attack_scenario": "1. An attacker provides a research query containing crafted input designed to manipulate the LLM's behavior. 2. The crafted input is included in the prompt sent to the LLM. 3. The LLM executes unintended actions based on the manipulated prompt, such as selecting irrelevant tools or leaking sensitive information.",
+            "end_to_end_impact": [
+              "Malicious query causes the LLM to select irrelevant tools, leading to incorrect research outcomes.",
+              "Crafted input in the query manipulates the LLM to disclose sensitive internal logic or data.",
+              "The LLM is tricked into performing unauthorized actions, such as accessing restricted data."
+            ],
+            "evidence": "The function directly concatenates user input into the prompt string without any validation or sanitization, as seen in the line: `RESEARCH QUERY: \"{query}\"`.",
+            "mitigation": "Implement input validation and sanitization to ensure that user input does not contain harmful content. Consider using a whitelist approach for allowed characters or patterns."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "high",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "Manipulation of LLM behavior through crafted input",
+          "Unauthorized access to sensitive data via LLM",
+          "Incorrect tool selection leading to flawed research outcomes"
+        ],
+        "overall_risk": "high",
+        "risk_summary": "The primary risk arises from the potential for prompt injection attacks due to unsanitized user input being directly included in LLM prompts. This could lead to manipulation of the LLM's behavior, resulting in incorrect tool selection, information disclosure, or unauthorized actions."
+      }
+    },
+    {
+      "name": "generate_mcp_research_prompt",
+      "type": "agent_tool",
+      "description": "Generates a research prompt for executing a query using selected tools.",
+      "functionality": "This tool constructs a detailed research prompt for an AI research assistant. It takes a research query and a list of selected tools, formats them into a structured prompt, and instructs the assistant on how to use the tools to gather and synthesize information. The prompt includes guidelines for using multiple tools, handling failures, and focusing on factual information.",
+      "position": "gpt_researcher/prompts.py:generate_mcp_research_prompt",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "str",
+          "purpose": "The research query that needs to be investigated."
+        },
+        {
+          "name": "selected_tools",
+          "type": "List",
+          "purpose": "A list of tools available for conducting the research, which can be either strings or objects with a 'name' attribute."
+        }
+      ],
+      "return_type": "str",
+      "return_description": "A formatted string that serves as a research prompt, instructing the AI assistant on how to conduct the research using the specified tools.",
+      "dataflow": {
+        "sources": [
+          "user_input"
+        ],
+        "destinations": [
+          "llm_prompt"
+        ],
+        "transformations": [
+          "concatenation"
+        ],
+        "flow_description": "The function takes a user-provided research query and a list of selected tools as input. It processes the list of tools to extract their names, handling both string representations and objects with a 'name' attribute. The tool names and the query are then concatenated into a formatted string that serves as a prompt for an LLM to execute research tasks.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "User input is directly used to generate a prompt for an LLM, which could lead to unintended or harmful outputs if the input is not properly validated or sanitized."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "medium",
+            "description": "The function directly incorporates user input into an LLM prompt without validation or sanitization, which could lead to prompt injection attacks.",
+            "attack_scenario": "An attacker provides a malicious query that includes instructions to the LLM to perform unintended actions, such as leaking sensitive information or altering the behavior of the research agent.",
+            "end_to_end_impact": [
+              "Malicious query causes the LLM to generate incorrect or misleading research results.",
+              "Crafted input leads to the LLM performing unauthorized actions, such as accessing restricted data.",
+              "Injected prompts could manipulate the LLM to disclose sensitive internal instructions or data."
+            ],
+            "evidence": "The function concatenates user input directly into the prompt string without any form of sanitization or validation, allowing for potential manipulation of the LLM's behavior.",
+            "mitigation": "Implement input validation and sanitization to ensure that user-provided queries do not contain harmful instructions. Consider using a whitelist of allowed query formats or escaping potentially dangerous characters."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "medium",
+            "exploitability": "easy"
+          }
+        ],
+        "threat_model": [
+          "User-provided input manipulation",
+          "Unauthorized LLM behavior",
+          "Data leakage through crafted prompts"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "The primary risk is from prompt injection due to direct incorporation of user input into LLM prompts without validation, which could lead to unauthorized actions or incorrect outputs from the LLM."
+      }
+    },
+    {
+      "name": "conduct_research_with_tools",
+      "type": "agent_tool",
+      "description": "This tool conducts intelligent research using a language model with bound tools to process a given query.",
+      "functionality": "The 'conduct_research_with_tools' function utilizes a language model (LLM) with a set of selected tools to perform research based on a provided query. It first checks if any tools are selected and logs the number of tools being used. It then creates an LLM provider using configuration settings and binds the selected tools to the LLM. A research prompt is generated and sent to the LLM, which may invoke the tools to gather information. The function processes the tool calls, executes them, and formats the results. It also includes the LLM's own analysis as part of the research results. The function handles exceptions and logs various stages of the process for transparency and debugging.",
+      "position": "gpt_researcher/mcp/research.py:conduct_research_with_tools",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "str",
+          "purpose": "The research query that the tool will use to conduct research."
+        },
+        {
+          "name": "selected_tools",
+          "type": "List",
+          "purpose": "A list of selected tools that the LLM can use to perform research."
+        }
+      ],
+      "return_type": "List[Dict[str, str]]",
+      "return_description": "A list of dictionaries containing the research results, where each dictionary represents a result with details such as title, href, and body.",
+      "dataflow": {
+        "sources": [
+          "user_input",
+          "llm_output"
+        ],
+        "destinations": [
+          "llm_prompt",
+          "user_output"
+        ],
+        "transformations": [
+          "concatenation",
+          "parsing"
+        ],
+        "flow_description": "The data flow begins with user_input in the form of a research query and selected tools. This input is used to generate a research prompt (concatenation) which is sent to the LLM (llm_prompt). The LLM processes this prompt and may make tool calls, whose results are parsed and formatted before being combined with the LLM's own analysis (llm_output). The final research results are then returned to the user (user_output).",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "User input is directly used to generate prompts for the LLM, which could lead to unintended behavior if the input is not properly validated or sanitized."
+          },
+          {
+            "from": "llm_output",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "The LLM's output, including any tool results, is directly returned to the user, which could expose sensitive information if not properly handled."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "high",
+            "description": "User input is directly used to generate prompts for the LLM, which could lead to unintended behavior if the input is not properly validated or sanitized.",
+            "attack_scenario": "An attacker crafts a malicious query that includes instructions to the LLM to perform unintended actions, such as leaking sensitive information or manipulating the research output.",
+            "end_to_end_impact": [
+              "Malicious query causes the LLM to generate incorrect research reports.",
+              "Crafted prompts lead to data exfiltration by embedding sensitive data in the output.",
+              "Unintended actions are performed by the LLM, such as executing unauthorized tool calls."
+            ],
+            "evidence": "The function `conduct_research_with_tools` directly uses `query` to generate `research_prompt` without any sanitization, which is then sent to the LLM.",
+            "mitigation": "Implement input validation and sanitization for user queries before using them to generate LLM prompts. Consider using a whitelist approach to filter out potentially harmful instructions."
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "severity": "medium",
+            "description": "The LLM's output, including any tool results, is directly returned to the user, which could expose sensitive information if not properly handled.",
+            "attack_scenario": "An attacker manipulates the LLM's output to include sensitive information or instructions that could be misused by the user or other systems.",
+            "end_to_end_impact": [
+              "LLM output includes sensitive data that should not be exposed to the user.",
+              "Manipulated LLM output leads to unauthorized access or actions by the user."
+            ],
+            "evidence": "The function processes the LLM's response and directly appends it to `research_results` without any filtering or validation.",
+            "mitigation": "Implement output filtering and validation to ensure that sensitive information is not included in the LLM's output. Consider using a policy-based approach to determine what information can be safely returned to the user."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "high",
+            "exploitability": "easy"
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "source": "llm_output",
+            "destination": "user_output",
+            "severity": "medium",
+            "exploitability": "medium"
+          }
+        ],
+        "threat_model": [
+          "Untrusted user input leading to LLM manipulation",
+          "Sensitive information leakage through LLM output"
+        ],
+        "overall_risk": "high",
+        "risk_summary": "The tool is vulnerable to prompt injection attacks due to direct use of user input in LLM prompts and lack of output validation, posing a high risk of unintended behavior and information leakage."
+      }
+    },
+    {
+      "name": "select_relevant_tools",
+      "type": "agent_tool",
+      "description": "This tool selects the most relevant tools for a given research query using a language model.",
+      "functionality": "The select_relevant_tools function uses a language model (LLM) to analyze a list of available tools and select the most relevant ones based on a research query. It first checks if the list of tools is empty or if the number of tools is less than the maximum allowed selection, adjusting the maximum if necessary. It then constructs a prompt with tool descriptions and calls the LLM to obtain a selection. If the LLM response is valid and contains JSON data, it parses the response to extract the selected tools. If the response is invalid or no tools are selected, it falls back to a default selection method. The function logs various stages of the process for debugging and transparency.",
+      "position": "gpt_researcher/mcp/tool_selector.py:select_relevant_tools",
+      "parameters": [
+        {
+          "name": "query",
+          "type": "str",
+          "purpose": "The research query for which relevant tools need to be selected."
+        },
+        {
+          "name": "all_tools",
+          "type": "List",
+          "purpose": "A list of all available tools from which the most relevant ones will be selected."
+        },
+        {
+          "name": "max_tools",
+          "type": "int",
+          "purpose": "The maximum number of tools to select, defaulting to 3."
+        }
+      ],
+      "return_type": "List",
+      "return_description": "A list of selected tools that are deemed most relevant to the research query.",
+      "dataflow": {
+        "sources": [
+          "user_input",
+          "llm_output"
+        ],
+        "destinations": [
+          "llm_prompt",
+          "user_output"
+        ],
+        "transformations": [
+          "parsing",
+          "concatenation",
+          "json_parsing"
+        ],
+        "flow_description": "The function receives a research query from user_input and a list of all_tools. It constructs a prompt using these inputs and sends it to an LLM (llm_prompt). The LLM's response (llm_output) is parsed to extract selected tools, which are then returned to the user (user_output). If the LLM response is invalid, a fallback selection method is used.",
+        "sensitive_flows": [
+          {
+            "from": "user_input",
+            "to": "llm_prompt",
+            "risk_level": "medium",
+            "reason": "User input is sent to an LLM, which may have privacy implications depending on the data contained in the query."
+          },
+          {
+            "from": "llm_output",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "The LLM's output is directly used to determine tool selection, which could lead to incorrect or biased results if the LLM's response is not properly validated."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection",
+            "severity": "high",
+            "description": "The tool is vulnerable to prompt injection attacks where untrusted user input is directly used to construct prompts for the LLM.",
+            "attack_scenario": "1. An attacker crafts a research query containing malicious instructions. 2. The query is sent to the LLM as part of the prompt. 3. The LLM executes the malicious instructions, potentially selecting inappropriate tools or leaking sensitive information.",
+            "end_to_end_impact": [
+              "Malicious query causes the LLM to select incorrect tools, leading to faulty research results.",
+              "Crafted query results in the LLM leaking sensitive information through its response.",
+              "The LLM is manipulated to perform unintended actions, such as generating biased or harmful content."
+            ],
+            "evidence": "The function constructs a prompt using user input without any sanitization or validation, directly passing it to the LLM.",
+            "mitigation": "Implement input validation and sanitization to ensure that user input does not contain harmful instructions. Consider using a whitelist of allowed query patterns."
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "severity": "medium",
+            "description": "The LLM's output is used to control tool selection, which could be manipulated to perform unauthorized actions.",
+            "attack_scenario": "1. An attacker injects a query that manipulates the LLM's output. 2. The manipulated output influences the tool selection process. 3. The system selects tools that perform unintended or harmful operations.",
+            "end_to_end_impact": [
+              "Manipulated LLM output causes the selection of tools that exfiltrate data.",
+              "The system performs unauthorized actions based on manipulated tool selection.",
+              "Incorrect tool selection leads to workflow disruption or data corruption."
+            ],
+            "evidence": "The LLM's response is parsed and used to determine tool selection without sufficient validation of the output.",
+            "mitigation": "Implement strict validation of the LLM's output before using it to control tool selection. Consider using a fallback mechanism that verifies the integrity of the selected tools."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "user_input",
+            "destination": "llm_prompt",
+            "severity": "high",
+            "exploitability": "easy"
+          },
+          {
+            "type": "Indirect Prompt Injection",
+            "source": "llm_output",
+            "destination": "user_output",
+            "severity": "medium",
+            "exploitability": "medium"
+          }
+        ],
+        "threat_model": [
+          "Unauthorized tool selection",
+          "Data exfiltration through LLM manipulation",
+          "Workflow disruption via incorrect tool selection"
+        ],
+        "overall_risk": "high",
+        "risk_summary": "The tool is vulnerable to prompt injection and indirect prompt injection attacks, which can lead to unauthorized actions, data exfiltration, and workflow disruption. Input validation and output verification are necessary to mitigate these risks."
+      }
+    },
+    {
+      "name": "scrape_urls",
+      "type": "agent_tool",
+      "description": "Asynchronously scrapes content and images from a list of URLs.",
+      "functionality": "The scrape_urls function is designed to scrape web content and images from a list of URLs. It uses an asynchronous approach to handle multiple URLs efficiently. The function takes a list of URLs, a configuration object, and a worker pool for managing concurrent tasks. It initializes a Scraper object with the provided URLs, user agent, and configuration settings. The Scraper then runs to collect data from the URLs. The function processes the scraped data to extract image URLs separately, handling any exceptions that occur during the scraping process.",
+      "position": "gpt_researcher/actions/web_scraping.py:scrape_urls",
+      "parameters": [
+        {
+          "name": "urls",
+          "type": "list",
+          "purpose": "A list of URLs to be scraped for content and images."
+        },
+        {
+          "name": "cfg",
+          "type": "Config",
+          "purpose": "An optional configuration object that may contain settings like user agent and scraper options."
+        },
+        {
+          "name": "worker_pool",
+          "type": "WorkerPool",
+          "purpose": "A pool of workers to manage concurrent scraping tasks."
+        }
+      ],
+      "return_type": "tuple[list[dict[str, Any]], list[dict[str, Any]]]",
+      "return_description": "A tuple containing two lists: the first list contains dictionaries of scraped content from each URL, and the second list contains dictionaries of image URLs extracted from the scraped data.",
+      "dataflow": {
+        "sources": [
+          "web_content"
+        ],
+        "destinations": [
+          "user_output"
+        ],
+        "transformations": [
+          "parsing"
+        ],
+        "flow_description": "The function scrape_urls takes a list of URLs as input and uses a Scraper object to asynchronously fetch and parse content from these URLs. The content and any image URLs found are collected into separate lists. The function returns these lists as output.",
+        "sensitive_flows": [
+          {
+            "from": "web_content",
+            "to": "user_output",
+            "risk_level": "medium",
+            "reason": "The data fetched from the web may contain sensitive or malicious content that could be exposed to the user."
+          }
+        ]
+      },
+      "vulnerability_analysis": {
+        "has_vulnerabilities": true,
+        "vulnerabilities": [
+          {
+            "type": "Prompt Injection (End-to-End)",
+            "severity": "medium",
+            "description": "The tool fetches web content that could contain malicious prompts designed to manipulate downstream LLM processing.",
+            "attack_scenario": "1. An attacker crafts a webpage with content designed to manipulate LLM behavior. 2. The scrape_urls function fetches this content. 3. The content is processed by an LLM, leading to unintended actions such as incorrect report generation or data exfiltration.",
+            "end_to_end_impact": [
+              "Malicious document causes agent to leak sensitive information.",
+              "Crafted content leads to incorrect research conclusions.",
+              "Untrusted content manipulates LLM to perform unintended actions."
+            ],
+            "evidence": "The function scrape_urls fetches web content without sanitization, which could be used to inject prompts into LLM processing.",
+            "mitigation": "Implement content validation and sanitization before processing with LLMs. Use content filtering to detect and neutralize potential prompt injections."
+          }
+        ],
+        "injection_vectors": [
+          {
+            "type": "Prompt Injection",
+            "source": "web_content",
+            "destination": "LLM",
+            "severity": "medium",
+            "exploitability": "medium"
+          }
+        ],
+        "threat_model": [
+          "Untrusted web content manipulation",
+          "LLM behavior manipulation through crafted inputs"
+        ],
+        "overall_risk": "medium",
+        "risk_summary": "The primary risk is from untrusted web content potentially manipulating LLM behavior, leading to incorrect outputs or unintended actions."
+      }
+    }
+  ],
+  "dataflows": [],
+  "vulnerabilities": [
+    {
+      "tool_ref": {
+        "name": "vector_store_tool",
+        "position": "backend/chat/chat.py:vector_store_tool"
+      },
+      "vulnerabilities": [
+        {
+          "type": "information_disclosure",
+          "severity": "medium",
+          "description": "The tool retrieves information from a vector store based on user input and directly outputs it to the user. If the vector store contains sensitive or proprietary information, this could lead to unauthorized disclosure.",
+          "attack_scenario": "An attacker provides a crafted query that retrieves sensitive information from the vector store, which is then directly output to them without any filtering or validation.",
+          "end_to_end_impact": [
+            "An attacker retrieves confidential business information from the vector store.",
+            "Sensitive user data stored in the vector store is exposed to unauthorized users.",
+            "Proprietary algorithms or models stored in the vector store are leaked."
+          ],
+          "evidence": "The data flow analysis indicates a direct flow from user input to user output via the vector store, with no intermediate checks or filters.",
+          "mitigation": "Implement access controls and filtering mechanisms to ensure only authorized users can retrieve sensitive information. Consider adding logging and monitoring to detect unauthorized access attempts."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "information_disclosure",
+          "source": "user_input",
+          "destination": "user_output",
+          "severity": "medium",
+          "exploitability": "easy"
+        }
+      ],
+      "threat_model": [
+        "unauthorized_information_access",
+        "data_leakage"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "conduct_research_with_tools",
+        "position": "gpt_researcher/mcp/research.py:conduct_research_with_tools"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "high",
+          "description": "User input is directly used to generate prompts for the LLM, which could lead to unintended LLM behavior if the input is not properly validated or sanitized.",
+          "attack_scenario": "1. An attacker crafts a malicious research query containing prompt injection payloads. 2. The query is used to generate a research prompt without proper sanitization. 3. The LLM processes the prompt and executes unintended actions or generates incorrect results. 4. The attacker receives manipulated research results or causes the LLM to perform unauthorized operations.",
+          "end_to_end_impact": [
+            "Malicious query causes LLM to perform unauthorized actions.",
+            "Crafted prompts lead to incorrect research report generation.",
+            "Data exfiltration through manipulated LLM responses."
+          ],
+          "evidence": "The function `conduct_research_with_tools` uses the `query` parameter directly to generate the research prompt without any sanitization or validation.",
+          "mitigation": "Implement input validation and sanitization for the `query` parameter to prevent injection attacks. Consider using a whitelist approach for allowed input patterns."
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "severity": "medium",
+          "description": "LLM output, including tool results, is directly returned to the user, which could expose sensitive information or lead to unintended actions if not properly handled.",
+          "attack_scenario": "1. An attacker submits a query that manipulates the LLM to produce output that influences subsequent operations. 2. The LLM's output is used to control tool execution or other privileged operations. 3. The attacker leverages this to perform unauthorized actions or access sensitive data.",
+          "end_to_end_impact": [
+            "LLM output causes execution of unintended tool operations.",
+            "Sensitive information is leaked through manipulated LLM responses.",
+            "Unauthorized access to system resources via crafted LLM output."
+          ],
+          "evidence": "The LLM's output is directly included in the research results without additional validation or filtering, allowing potential manipulation of subsequent operations.",
+          "mitigation": "Implement strict validation and filtering of LLM outputs before using them in any privileged operations or returning them to the user."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "llm_prompt",
+          "severity": "high",
+          "exploitability": "easy"
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "source": "llm_output",
+          "destination": "user_output",
+          "severity": "medium",
+          "exploitability": "medium"
+        }
+      ],
+      "threat_model": [
+        "Unauthorized actions via prompt injection",
+        "Sensitive data exposure through LLM output",
+        "Manipulation of tool operations via LLM responses"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "vector_store_tool",
+        "position": "backend/chat/chat.py:vector_store_tool"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "medium",
+          "description": "The tool retrieves information from a vector store based on user input, which could be manipulated to inject malicious prompts or queries.",
+          "attack_scenario": "1. An attacker provides a specially crafted query as input. 2. The query is used to retrieve information from the vector store. 3. The retrieved information could contain malicious content that influences the behavior of the AI agent, leading to incorrect or unintended actions.",
+          "end_to_end_impact": [
+            "Malicious query causes the agent to retrieve and display sensitive information.",
+            "Crafted input leads to incorrect report generation by the AI agent.",
+            "Injected prompts result in data exfiltration through manipulated outputs."
+          ],
+          "evidence": "The code directly uses user input to query the vector store without any validation or sanitization, which could lead to prompt injection vulnerabilities.",
+          "mitigation": "Implement input validation and sanitization to ensure that queries do not contain malicious content. Consider using a whitelist of allowed query patterns or escaping potentially harmful characters."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "vector_store",
+          "severity": "medium",
+          "exploitability": "easy"
+        }
+      ],
+      "threat_model": [
+        "Unauthorized access to sensitive information",
+        "Manipulation of AI agent behavior",
+        "Data exfiltration through crafted queries"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "MCPRetriever",
+        "position": "gpt_researcher/retrievers/mcp/retriever.py:MCPRetriever"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "medium",
+          "description": "User input is directly used to prompt the LLM, which could lead to unintended LLM behavior if not properly sanitized.",
+          "attack_scenario": "1. An attacker provides a specially crafted input that includes instructions to the LLM to perform unintended actions. 2. The input is directly used in the LLM prompt without proper sanitization. 3. The LLM executes the unintended instructions, potentially leading to incorrect research results or data leakage.",
+          "end_to_end_impact": [
+            "Malicious input causes the LLM to generate incorrect research results.",
+            "Crafted input leads to data exfiltration via LLM responses.",
+            "Unintended actions are performed by the LLM due to manipulated input."
+          ],
+          "evidence": "The data flow analysis indicates that user_input is directly used to prompt the LLM, which is a medium risk for prompt injection.",
+          "mitigation": "Implement input validation and sanitization to ensure that user inputs do not contain harmful instructions or data that could manipulate the LLM."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "llm_prompt",
+          "severity": "medium",
+          "exploitability": "easy"
+        }
+      ],
+      "threat_model": [
+        "Prompt injection leading to incorrect research results",
+        "Data exfiltration via crafted LLM prompts",
+        "Unintended actions performed by the LLM"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "MCPResearchSkill",
+        "position": "gpt_researcher/mcp/research.py:MCPResearchSkill"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "high",
+          "description": "Untrusted user input is used to generate LLM prompts without sufficient sanitization, leading to potential prompt injection.",
+          "attack_scenario": "1. An attacker provides a specially crafted input that includes instructions to the LLM to perform unintended actions. 2. The input is parsed and used to generate an LLM prompt. 3. The LLM executes the unintended instructions, potentially leaking sensitive information or performing unauthorized actions.",
+          "end_to_end_impact": [
+            "Malicious input causes the LLM to disclose sensitive internal data.",
+            "Crafted input results in the LLM performing unauthorized actions.",
+            "The LLM generates incorrect or misleading research reports based on manipulated input."
+          ],
+          "evidence": "The data flow analysis indicates that user_input is directly transformed into llm_prompt without explicit mention of comprehensive sanitization steps.",
+          "mitigation": "Implement strict input validation and sanitization before using user input to generate LLM prompts. Consider using allow-lists for acceptable input patterns."
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "severity": "medium",
+          "description": "LLM output is used to control operations without adequate validation, potentially leading to unintended actions.",
+          "attack_scenario": "1. An attacker injects a prompt that manipulates the LLM to produce output controlling privileged operations. 2. The output is used to execute operations without proper validation. 3. This could lead to unauthorized file operations or command execution.",
+          "end_to_end_impact": [
+            "LLM output manipulates the system to execute unauthorized commands.",
+            "Privileged operations are performed based on manipulated LLM output."
+          ],
+          "evidence": "The flow from llm_output to user_output suggests that LLM output is used without sufficient checks, potentially allowing manipulation.",
+          "mitigation": "Implement strict validation of LLM output before using it to control operations. Ensure that only expected and safe operations are executed."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "llm_prompt",
+          "severity": "high",
+          "exploitability": "easy"
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "source": "llm_output",
+          "destination": "user_output",
+          "severity": "medium",
+          "exploitability": "medium"
+        }
+      ],
+      "threat_model": [
+        "Unauthorized access through manipulated LLM prompts",
+        "Data leakage via crafted user inputs",
+        "Execution of unintended actions based on LLM output"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "vector_store_tool",
+        "position": "backend/chat/chat.py:vector_store_tool"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection (End-to-End)",
+          "severity": "medium",
+          "description": "The tool retrieves information based on user input without sanitization, which could lead to prompt injection attacks.",
+          "attack_scenario": "1. An attacker crafts a query that includes malicious instructions. 2. The query is sent to the vector store tool. 3. The tool retrieves and returns manipulated data that could influence subsequent operations or outputs.",
+          "end_to_end_impact": [
+            "Malicious query causes the agent to retrieve and display manipulated information.",
+            "Crafted prompts could lead to incorrect research or report generation.",
+            "Sensitive data could be exfiltrated if the retrieved information is manipulated."
+          ],
+          "evidence": "The retrieve_info function directly uses user input to query the vector store without any sanitization or validation.",
+          "mitigation": "Implement input validation and sanitization to ensure that queries do not contain harmful instructions or data."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "vector_store",
+          "severity": "medium",
+          "exploitability": "medium"
+        }
+      ],
+      "threat_model": [
+        "Prompt injection leading to data manipulation",
+        "Information disclosure through manipulated queries"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "generate_mcp_tool_selection_prompt",
+        "position": "gpt_researcher/prompts.py:generate_mcp_tool_selection_prompt"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "high",
+          "description": "The function directly incorporates user input into the LLM prompt without sanitization, allowing for potential prompt injection attacks.",
+          "attack_scenario": "1. An attacker provides a research query containing crafted input designed to manipulate the LLM's behavior. 2. The crafted input is included in the prompt sent to the LLM. 3. The LLM executes unintended actions based on the manipulated prompt, such as selecting irrelevant tools or leaking sensitive information.",
+          "end_to_end_impact": [
+            "Malicious query causes the LLM to select irrelevant tools, leading to incorrect research outcomes.",
+            "Crafted input in the query manipulates the LLM to disclose sensitive internal logic or data.",
+            "The LLM is tricked into performing unauthorized actions, such as accessing restricted data."
+          ],
+          "evidence": "The function directly concatenates user input into the prompt string without any validation or sanitization, as seen in the line: `RESEARCH QUERY: \"{query}\"`.",
+          "mitigation": "Implement input validation and sanitization to ensure that user input does not contain harmful content. Consider using a whitelist approach for allowed characters or patterns."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "llm_prompt",
+          "severity": "high",
+          "exploitability": "easy"
+        }
+      ],
+      "threat_model": [
+        "Manipulation of LLM behavior through crafted input",
+        "Unauthorized access to sensitive data via LLM",
+        "Incorrect tool selection leading to flawed research outcomes"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "generate_mcp_research_prompt",
+        "position": "gpt_researcher/prompts.py:generate_mcp_research_prompt"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "medium",
+          "description": "The function directly incorporates user input into an LLM prompt without validation or sanitization, which could lead to prompt injection attacks.",
+          "attack_scenario": "An attacker provides a malicious query that includes instructions to the LLM to perform unintended actions, such as leaking sensitive information or altering the behavior of the research agent.",
+          "end_to_end_impact": [
+            "Malicious query causes the LLM to generate incorrect or misleading research results.",
+            "Crafted input leads to the LLM performing unauthorized actions, such as accessing restricted data.",
+            "Injected prompts could manipulate the LLM to disclose sensitive internal instructions or data."
+          ],
+          "evidence": "The function concatenates user input directly into the prompt string without any form of sanitization or validation, allowing for potential manipulation of the LLM's behavior.",
+          "mitigation": "Implement input validation and sanitization to ensure that user-provided queries do not contain harmful instructions. Consider using a whitelist of allowed query formats or escaping potentially dangerous characters."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "llm_prompt",
+          "severity": "medium",
+          "exploitability": "easy"
+        }
+      ],
+      "threat_model": [
+        "User-provided input manipulation",
+        "Unauthorized LLM behavior",
+        "Data leakage through crafted prompts"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "conduct_research_with_tools",
+        "position": "gpt_researcher/mcp/research.py:conduct_research_with_tools"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "high",
+          "description": "User input is directly used to generate prompts for the LLM, which could lead to unintended behavior if the input is not properly validated or sanitized.",
+          "attack_scenario": "An attacker crafts a malicious query that includes instructions to the LLM to perform unintended actions, such as leaking sensitive information or manipulating the research output.",
+          "end_to_end_impact": [
+            "Malicious query causes the LLM to generate incorrect research reports.",
+            "Crafted prompts lead to data exfiltration by embedding sensitive data in the output.",
+            "Unintended actions are performed by the LLM, such as executing unauthorized tool calls."
+          ],
+          "evidence": "The function `conduct_research_with_tools` directly uses `query` to generate `research_prompt` without any sanitization, which is then sent to the LLM.",
+          "mitigation": "Implement input validation and sanitization for user queries before using them to generate LLM prompts. Consider using a whitelist approach to filter out potentially harmful instructions."
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "severity": "medium",
+          "description": "The LLM's output, including any tool results, is directly returned to the user, which could expose sensitive information if not properly handled.",
+          "attack_scenario": "An attacker manipulates the LLM's output to include sensitive information or instructions that could be misused by the user or other systems.",
+          "end_to_end_impact": [
+            "LLM output includes sensitive data that should not be exposed to the user.",
+            "Manipulated LLM output leads to unauthorized access or actions by the user."
+          ],
+          "evidence": "The function processes the LLM's response and directly appends it to `research_results` without any filtering or validation.",
+          "mitigation": "Implement output filtering and validation to ensure that sensitive information is not included in the LLM's output. Consider using a policy-based approach to determine what information can be safely returned to the user."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "llm_prompt",
+          "severity": "high",
+          "exploitability": "easy"
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "source": "llm_output",
+          "destination": "user_output",
+          "severity": "medium",
+          "exploitability": "medium"
+        }
+      ],
+      "threat_model": [
+        "Untrusted user input leading to LLM manipulation",
+        "Sensitive information leakage through LLM output"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "select_relevant_tools",
+        "position": "gpt_researcher/mcp/tool_selector.py:select_relevant_tools"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection",
+          "severity": "high",
+          "description": "The tool is vulnerable to prompt injection attacks where untrusted user input is directly used to construct prompts for the LLM.",
+          "attack_scenario": "1. An attacker crafts a research query containing malicious instructions. 2. The query is sent to the LLM as part of the prompt. 3. The LLM executes the malicious instructions, potentially selecting inappropriate tools or leaking sensitive information.",
+          "end_to_end_impact": [
+            "Malicious query causes the LLM to select incorrect tools, leading to faulty research results.",
+            "Crafted query results in the LLM leaking sensitive information through its response.",
+            "The LLM is manipulated to perform unintended actions, such as generating biased or harmful content."
+          ],
+          "evidence": "The function constructs a prompt using user input without any sanitization or validation, directly passing it to the LLM.",
+          "mitigation": "Implement input validation and sanitization to ensure that user input does not contain harmful instructions. Consider using a whitelist of allowed query patterns."
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "severity": "medium",
+          "description": "The LLM's output is used to control tool selection, which could be manipulated to perform unauthorized actions.",
+          "attack_scenario": "1. An attacker injects a query that manipulates the LLM's output. 2. The manipulated output influences the tool selection process. 3. The system selects tools that perform unintended or harmful operations.",
+          "end_to_end_impact": [
+            "Manipulated LLM output causes the selection of tools that exfiltrate data.",
+            "The system performs unauthorized actions based on manipulated tool selection.",
+            "Incorrect tool selection leads to workflow disruption or data corruption."
+          ],
+          "evidence": "The LLM's response is parsed and used to determine tool selection without sufficient validation of the output.",
+          "mitigation": "Implement strict validation of the LLM's output before using it to control tool selection. Consider using a fallback mechanism that verifies the integrity of the selected tools."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "user_input",
+          "destination": "llm_prompt",
+          "severity": "high",
+          "exploitability": "easy"
+        },
+        {
+          "type": "Indirect Prompt Injection",
+          "source": "llm_output",
+          "destination": "user_output",
+          "severity": "medium",
+          "exploitability": "medium"
+        }
+      ],
+      "threat_model": [
+        "Unauthorized tool selection",
+        "Data exfiltration through LLM manipulation",
+        "Workflow disruption via incorrect tool selection"
+      ]
+    },
+    {
+      "tool_ref": {
+        "name": "scrape_urls",
+        "position": "gpt_researcher/actions/web_scraping.py:scrape_urls"
+      },
+      "vulnerabilities": [
+        {
+          "type": "Prompt Injection (End-to-End)",
+          "severity": "medium",
+          "description": "The tool fetches web content that could contain malicious prompts designed to manipulate downstream LLM processing.",
+          "attack_scenario": "1. An attacker crafts a webpage with content designed to manipulate LLM behavior. 2. The scrape_urls function fetches this content. 3. The content is processed by an LLM, leading to unintended actions such as incorrect report generation or data exfiltration.",
+          "end_to_end_impact": [
+            "Malicious document causes agent to leak sensitive information.",
+            "Crafted content leads to incorrect research conclusions.",
+            "Untrusted content manipulates LLM to perform unintended actions."
+          ],
+          "evidence": "The function scrape_urls fetches web content without sanitization, which could be used to inject prompts into LLM processing.",
+          "mitigation": "Implement content validation and sanitization before processing with LLMs. Use content filtering to detect and neutralize potential prompt injections."
+        }
+      ],
+      "injection_vectors": [
+        {
+          "type": "Prompt Injection",
+          "source": "web_content",
+          "destination": "LLM",
+          "severity": "medium",
+          "exploitability": "medium"
+        }
+      ],
+      "threat_model": [
+        "Untrusted web content manipulation",
+        "LLM behavior manipulation through crafted inputs"
+      ]
+    }
+  ],
+  "environment": {},
+  "additional_notes": [],
+  "last_updated": "2025-11-12 10:12:24"
+}
