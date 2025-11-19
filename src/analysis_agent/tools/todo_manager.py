@@ -57,8 +57,12 @@ class Todo:
     def update_status(self, new_status: str):
         """Update todo status."""
         if new_status in ["pending", "in_progress", "completed"]:
+            old_status = self.status
             self.status = new_status
             self.updated_at = datetime.now().isoformat()
+            # Log status change
+            if old_status != new_status:
+                logger.info(f"Todo '{self.content}' status changed: {old_status} → {new_status}")
 
 
 class TodoTracker:
@@ -124,8 +128,11 @@ class TodoTracker:
     def update_todo(self, todo_id: str, status: str) -> bool:
         """Update todo status by ID."""
         if todo_id in self.todos:
+            old_status = self.todos[todo_id].status
             self.todos[todo_id].update_status(status)
+            logger.info(f"Todo '{todo_id}' manually updated: {old_status} → {status}")
             return True
+        logger.warning(f"Attempted to update non-existent todo: {todo_id}")
         return False
 
     def mark_in_progress_by_tool(self, tool_name: str) -> Optional[str]:
@@ -435,8 +442,12 @@ def todo_update(
                 "message": f"Invalid status '{status}'. Must be pending, in_progress, or completed."
             }
 
+        # Get old status for logging
+        old_status = tracker.todos.get(todo_id).status if todo_id in tracker.todos else None
+
         success = tracker.update_todo(todo_id, status)
         if not success:
+            logger.warning(f"Failed to update todo '{todo_id}': not found")
             return {
                 "success": False,
                 "message": f"Todo with ID '{todo_id}' not found"
@@ -446,7 +457,7 @@ def todo_update(
         tracker.save_to_state(tool_context)
 
         stats = tracker.get_stats()
-        logger.info(f"Todo '{todo_id}' updated to '{status}'")
+        logger.info(f"Todo '{todo_id}' updated: {old_status} → {status} | Stats: {stats['completed']}/{stats['total']} completed")
 
         return {
             "success": True,
@@ -505,7 +516,7 @@ def todo_add(
         tracker.save_to_state(tool_context)
 
         stats = tracker.get_stats()
-        logger.info(f"New todo added: '{content}'")
+        logger.info(f"New todo added: '{content}' (ID: {new_todo.id}) | Stats: {stats['completed']}/{stats['total']} total")
 
         return {
             "success": True,

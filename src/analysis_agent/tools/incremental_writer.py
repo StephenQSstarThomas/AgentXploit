@@ -186,6 +186,9 @@ def save_tool_analysis(
         logger.info(f"Saved analysis for tool: {tool_name}")
         logger.info(f"Total tools analyzed: {len(data['tools'])}")
 
+        # Record todo snapshot if todos have changed
+        _record_todo_snapshot_if_changed(tool_context)
+
         return {
             "success": True,
             "message": f"Successfully saved analysis for '{tool_name}'. Total tools: {len(data['tools'])}",
@@ -242,6 +245,9 @@ def log_analysis_event(
 
         data["analysis_log"].append(log_entry)
         _save_incremental_json(json_path, data)
+
+        # Record todo snapshot if todos have changed
+        _record_todo_snapshot_if_changed(tool_context)
 
         logger.info(f"Logged event: {event_type}")
         return {
@@ -321,6 +327,9 @@ def save_environment_info(
         data["analysis_log"].append(log_entry)
         _save_incremental_json(json_path, data)
 
+        # Record todo snapshot if todos have changed
+        _record_todo_snapshot_if_changed(tool_context)
+
         logger.info("Updated environment information")
         return {
             "success": True,
@@ -362,6 +371,9 @@ def sync_todos_to_json(
         # Update todos
         data["todos"] = todos
         _save_incremental_json(json_path, data)
+
+        # Record todo snapshot after sync (always record, as todos have definitely changed)
+        _record_todo_snapshot_if_changed(tool_context)
 
         logger.info(f"Synced {len(todos)} todos to incremental JSON")
         return {
@@ -417,6 +429,87 @@ def get_incremental_analysis_summary(
             "message": f"Error: {str(e)}",
             "tools_count": 0
         }
+
+
+def _record_todo_snapshot_if_changed(
+    tool_context: Optional[ToolContext] = None
+) -> bool:
+    """
+    Record a todo snapshot to the trace if todos have changed since last snapshot.
+
+    This function compares the current todos with the last recorded snapshot
+    and adds a new todo_snapshot event if there are changes.
+
+    Args:
+        tool_context: ADK tool context (auto-injected)
+
+    Returns:
+        bool: True if snapshot was recorded, False otherwise
+    """
+    try:
+        if tool_context is None:
+            return False
+
+        # Get current todos from tool context
+        from .todo_manager import TODOS_STATE_KEY
+        current_todos = tool_context.state.get(TODOS_STATE_KEY, [])
+
+        # Get incremental JSON path
+        json_path = _get_incremental_json_path(tool_context)
+        if not os.path.exists(json_path):
+            return False
+
+        agent_name = tool_context.state.get("agent_name")
+        data = _load_or_create_incremental_json(json_path, agent_name)
+
+        # Find last todo_snapshot in analysis_log
+        last_snapshot_todos = None
+        for event in reversed(data.get("analysis_log", [])):
+            if event.get("event") == "todo_snapshot":
+                last_snapshot_todos = event.get("details", {}).get("todos", [])
+                break
+
+        # Compare current todos with last snapshot
+        # Serialize for comparison (using json to normalize)
+        import json as json_module
+        current_serialized = json_module.dumps(current_todos, sort_keys=True)
+        last_serialized = json_module.dumps(last_snapshot_todos, sort_keys=True) if last_snapshot_todos is not None else None
+
+        # If todos have changed, record new snapshot
+        if current_serialized != last_serialized:
+            # Calculate statistics
+            todos_total = len(current_todos)
+            todos_pending = sum(1 for t in current_todos if t.get("status") == "pending")
+            todos_in_progress = sum(1 for t in current_todos if t.get("status") == "in_progress")
+            todos_completed = sum(1 for t in current_todos if t.get("status") == "completed")
+
+            # Create snapshot event
+            snapshot_event = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "event": "todo_snapshot",
+                "details": {
+                    "todos": current_todos,
+                    "stats": {
+                        "total": todos_total,
+                        "pending": todos_pending,
+                        "in_progress": todos_in_progress,
+                        "completed": todos_completed
+                    }
+                }
+            }
+
+            # Append to analysis log
+            data["analysis_log"].append(snapshot_event)
+            _save_incremental_json(json_path, data)
+
+            logger.info(f"Todo snapshot recorded: {todos_completed}/{todos_total} completed")
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Failed to record todo snapshot: {e}", exc_info=True)
+        return False
 
 
 __all__ = [

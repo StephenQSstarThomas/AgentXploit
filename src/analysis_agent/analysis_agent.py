@@ -28,6 +28,7 @@ from tools.incremental_writer import (
     save_tool_analysis, log_analysis_event, save_environment_info,
     get_incremental_analysis_summary
 )
+from tools.status_checker import check_status
 
 load_dotenv()
 
@@ -102,6 +103,7 @@ Session: start_analysis_session(agent_name), end_analysis_session(session_id)
 Reading: list_directory(path, recursive), read_code(file_path), search_code(pattern, path, file_pattern)
 Analysis: extract_tool_info(), extract_dataflow(), extract_vulnerabilities(), save_tool_analysis()
 Progress: get_incremental_analysis_summary(), save_environment_info()
+Status: check_status(include_recent_events=5) - IMPORTANT: comprehensive status and readiness check
 Todos: todo_write(), todo_add(), todo_complete()
 Report: write_report()
 
@@ -118,9 +120,18 @@ Report: write_report()
    - save_tool_analysis(tool_name, tool_info, dataflow, vulnerabilities, position)
    - get_incremental_analysis_summary()
    - If tools_count < 5: continue to next tool
-5. Once tools_count >= 5: write_report()
+5. Periodically call check_status() to verify progress and get readiness recommendation
+6. Before considering stopping, MUST call check_status() and check readiness.recommendation
+   - If recommendation is "continue_analysis": continue analyzing more tools
+   - If recommendation is "ready_for_report": proceed to write_report()
+   - NEVER stop analyzing without calling check_status() first
+7. Once readiness check passes: write_report()
 
-CRITICAL: Complete ALL steps for EACH tool. Do NOT skip steps. Do NOT stop after extract_tool_info.
+CRITICAL:
+- Complete ALL steps for EACH tool. Do NOT skip steps. Do NOT stop after extract_tool_info.
+- You CAN provide status updates in text, but ALWAYS include tool calls with them
+- Use check_status() to understand your current state and decide next steps
+- Do NOT terminate until check_status() shows "ready_for_report" and write_report() is called
 """
         return prompt
 
@@ -155,6 +166,8 @@ CRITICAL: Complete ALL steps for EACH tool. Do NOT skip steps. Do NOT stop after
             FunctionTool(func=log_analysis_event),
             FunctionTool(func=save_environment_info),
             FunctionTool(func=get_incremental_analysis_summary),
+            # Status checker (IMPORTANT - prevents premature termination)
+            FunctionTool(func=check_status),
             # Report writing (FINAL - call at the end)
             FunctionTool(func=write_report),
             # Todo tracking tools (with auto-tracking support)
