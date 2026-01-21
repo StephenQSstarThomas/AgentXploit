@@ -1,0 +1,113 @@
+{
+  "session_id": null,
+  "agent_name": "OpenHands",
+  "analysis_start": "2026-01-20 00:01:02",
+  "analysis_status": "in_progress",
+  "last_updated": "2026-01-20 00:01:02",
+  "tools": [],
+  "environment": {
+    "docker_required": null,
+    "dependencies": [],
+    "config_files": [],
+    "framework": null,
+    "entry_points": []
+  },
+  "todos": [
+    {
+      "content": "Survey repository structure and identify key files",
+      "status": "pending",
+      "activeForm": "Surveying repository structure",
+      "id": "survey_repository_structure_and_identify_key_files",
+      "created_at": "2026-01-20T00:01:02.258045",
+      "updated_at": "2026-01-20T00:01:02.258045"
+    },
+    {
+      "content": "Read configuration, entry points, and dependency files",
+      "status": "pending",
+      "activeForm": "Reading configuration and dependency files",
+      "id": "read_configuration_entry_points_and_dependency_fil",
+      "created_at": "2026-01-20T00:01:02.258071",
+      "updated_at": "2026-01-20T00:01:02.258071"
+    },
+    {
+      "content": "Search codebase for tool definitions",
+      "status": "pending",
+      "activeForm": "Searching for tool definitions",
+      "id": "search_codebase_for_tool_definitions",
+      "created_at": "2026-01-20T00:01:02.258084",
+      "updated_at": "2026-01-20T00:01:02.258084"
+    },
+    {
+      "content": "Analyze discovered tools following multi-round workflow",
+      "status": "pending",
+      "activeForm": "Analyzing tools",
+      "id": "analyze_discovered_tools_following_multi_round_wor",
+      "created_at": "2026-01-20T00:01:02.258095",
+      "updated_at": "2026-01-20T00:01:02.258095"
+    },
+    {
+      "content": "Document environment details",
+      "status": "pending",
+      "activeForm": "Documenting environment",
+      "id": "document_environment_details",
+      "created_at": "2026-01-20T00:01:02.258104",
+      "updated_at": "2026-01-20T00:01:02.258104"
+    }
+  ],
+  "analysis_log": [
+    {
+      "timestamp": "2026-01-20 00:01:02",
+      "event": "todo_snapshot",
+      "details": {
+        "todos": [
+          {
+            "content": "Survey repository structure and identify key files",
+            "status": "pending",
+            "activeForm": "Surveying repository structure",
+            "id": "survey_repository_structure_and_identify_key_files",
+            "created_at": "2026-01-20T00:01:02.258045",
+            "updated_at": "2026-01-20T00:01:02.258045"
+          },
+          {
+            "content": "Read configuration, entry points, and dependency files",
+            "status": "pending",
+            "activeForm": "Reading configuration and dependency files",
+            "id": "read_configuration_entry_points_and_dependency_fil",
+            "created_at": "2026-01-20T00:01:02.258071",
+            "updated_at": "2026-01-20T00:01:02.258071"
+          },
+          {
+            "content": "Search codebase for tool definitions",
+            "status": "pending",
+            "activeForm": "Searching for tool definitions",
+            "id": "search_codebase_for_tool_definitions",
+            "created_at": "2026-01-20T00:01:02.258084",
+            "updated_at": "2026-01-20T00:01:02.258084"
+          },
+          {
+            "content": "Analyze discovered tools following multi-round workflow",
+            "status": "pending",
+            "activeForm": "Analyzing tools",
+            "id": "analyze_discovered_tools_following_multi_round_wor",
+            "created_at": "2026-01-20T00:01:02.258095",
+            "updated_at": "2026-01-20T00:01:02.258095"
+          },
+          {
+            "content": "Document environment details",
+            "status": "pending",
+            "activeForm": "Documenting environment",
+            "id": "document_environment_details",
+            "created_at": "2026-01-20T00:01:02.258104",
+            "updated_at": "2026-01-20T00:01:02.258104"
+          }
+        ],
+        "stats": {
+          "total": 5,
+          "pending": 5,
+          "in_progress": 0,
+          "completed": 0
+        }
+      }
+    }
+  ]
+}

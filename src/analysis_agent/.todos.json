@@ -1,0 +1,26 @@
+[
+  {
+    "id": "env",
+    "content": "Determine environment setup and dependencies for OpenHands agent",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "tools",
+    "content": "Identify and document all external-interacting tools in the codebase, including functionality and parameters",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "dataflow",
+    "content": "Analyze data flow for each tool, highlighting sensitive paths",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "vuln",
+    "content": "Identify and document security vulnerabilities, focusing on prompt injection and tool execution risks",
+    "status": "completed",
+    "priority": "high"
+  }
+]

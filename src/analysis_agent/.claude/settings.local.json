@@ -9,7 +9,10 @@
       "Bash(cat:*)",
       "Bash(xargs:*)",
       "Bash(python3:*)",
-      "Bash(timeout 180 python3:*)"
+      "Bash(timeout 180 python3:*)",
+      "Bash(conda run:*)",
+      "WebSearch",
+      "WebFetch(domain:towardsdatascience.com)"
     ],
     "deny": [],
     "ask": []
