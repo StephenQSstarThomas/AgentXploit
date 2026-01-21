@@ -17,6 +17,7 @@
 
 # Still ignore common artifacts
 src/AgentXploit/.claude
+src/exploiter_agent/config.yaml
 **/__pycache__/
 *.py[cod]
 *$py.class
