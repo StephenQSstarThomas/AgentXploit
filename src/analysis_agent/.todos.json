@@ -1,26 +1,32 @@
 [
   {
-    "id": "env",
-    "content": "Determine environment setup and dependencies for OpenHands agent",
+    "id": "init_env",
+    "content": "Survey repository and identify environment, entry points, dependencies",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "tools",
-    "content": "Identify and document all external-interacting tools in the codebase, including functionality and parameters",
+    "id": "pass_a",
+    "content": "Perform broad pattern search for high-risk sinks",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "dataflow",
-    "content": "Analyze data flow for each tool, highlighting sensitive paths",
+    "id": "pass_b",
+    "content": "Deep review around identified sinks for exploitability",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "vuln",
-    "content": "Identify and document security vulnerabilities, focusing on prompt injection and tool execution risks",
+    "id": "pass_c",
+    "content": "Trace inputs at boundaries (CLI/env/config) for vulnerabilities",
     "status": "completed",
     "priority": "high"
+  },
+  {
+    "id": "report",
+    "content": "Document confirmed traditional vulnerabilities and finalize report",
+    "status": "completed",
+    "priority": "medium"
   }
 ]

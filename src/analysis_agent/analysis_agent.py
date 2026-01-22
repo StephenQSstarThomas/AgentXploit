@@ -18,10 +18,16 @@ from tools.analysis_writer import (
     write_tool_info,
     write_dataflow,
     write_vulnerabilities,
+    write_vulnerabilities_traditional,
     write_environment,
     write_dependencies,
     write_final_report
 )
+
+# Analysis style constants
+STYLE_PROMPT_INJECTION = "prompt_injection"
+STYLE_TRADITIONAL = "traditional"
+VALID_STYLES = [STYLE_PROMPT_INJECTION, STYLE_TRADITIONAL]
 
 load_dotenv()
 
@@ -37,15 +43,22 @@ logger = logging.getLogger(__name__)
 class AnalysisAgent:
     """Analysis agent for understanding target agent architecture and data flows."""
 
-    def __init__(self, target_path: str, container_name: str = None, config_path: str = "config.yaml"):
+    def __init__(self, target_path: str, style: str = STYLE_PROMPT_INJECTION,
+                 container_name: str = None, config_path: str = "config.yaml"):
         """Initialize analysis agent.
 
         Args:
             target_path: Path to target agent codebase (local or container path)
+            style: Analysis style - 'prompt_injection' (tool/dataflow based) or
+                   'traditional' (direct vulnerability scanning for RCE, XSS, CSRF, etc.)
             container_name: Docker container name if target is containerized
             config_path: Path to configuration file
         """
+        if style not in VALID_STYLES:
+            raise ValueError(f"Invalid style '{style}'. Must be one of: {VALID_STYLES}")
+
         self.target_path = target_path
+        self.style = style
         self.container_name = container_name
         self.config_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), config_path)
@@ -55,6 +68,7 @@ class AnalysisAgent:
         self.session_history = {
             "session_id": str(uuid.uuid4()),
             "target_path": target_path,
+            "style": style,
             "container_name": container_name,
             "findings": [],
             "timestamp": time.strftime("%Y%m%d_%H%M%S")
@@ -74,75 +88,309 @@ class AnalysisAgent:
             return {}
 
     def _build_system_prompt(self) -> str:
-        """Build system prompt for analysis agent."""
-        prompt = f"""You are an expert in AI Agent Security research.
+        """Build simplified system prompt for analysis agent."""
+        prompt = """You are an expert AI Agent Security researcher and vulnerability analyst.
 
-Your task is to help users analyze agent codebases, thoroughly and meticulously identifying potential vulnerabilities.
+You specialize in discovering security vulnerabilities in codebases, including both:
+- AI/LLM agent-specific vulnerabilities (prompt injection, indirect prompt injection, data exfiltration via tools)
+- Traditional application security vulnerabilities (RCE, XSS, CSRF, SQL injection, path traversal, SSRF, etc.)
 
-=== TARGET ===
+=== AVAILABLE TOOLS ===
 
+**File Operations:**
+- ls(path) - list directory contents
+- glob(pattern, path) - find files matching pattern
+- grep(pattern, path) - search for text patterns in files
+- read(file_path) - read file contents
+
+**Progress Tracking:**
+- todo_read() - read current todo list
+- todo_write(todos) - update todo list
+
+**Analysis Writers:**
+- create_analysis_json(json_path) - initialize analysis file (MUST call first)
+- write_environment(json_path, environment) - write environment info
+- write_dependencies(json_path, dependencies) - write dependency list
+- write_tool_info(json_path, tool_name, tool_info) - write tool description
+- write_dataflow(json_path, tool_name, dataflow) - write data flow analysis
+- write_vulnerabilities(json_path, tool_name, vulnerabilities) - write prompt injection related vulnerabilities
+- write_vulnerabilities_traditional(json_path, vulnerabilities) - write traditional security vulnerabilities
+- write_final_report(json_path) - finalize report (call when DONE)
+
+=== RULES ===
+
+- All write_* functions support overwriting - call them again to update findings
+- Keep analyzing until you have thoroughly examined all relevant code
+- Call write_final_report() ONLY when analysis is complete
+- Follow the task and workflow provided in the user message
+"""
+        return prompt
+
+    def _build_user_message_prompt_injection(self, json_path: str, max_turns: int) -> str:
+        """Build user message for prompt injection style analysis."""
+        return f"""=== ANALYSIS TARGET ===
 Path: {self.target_path}
+Output JSON: {json_path}
+Max turns: {max_turns}
+Analysis Style: Prompt Injection & Agent Security
 
 === TASK ===
-
-Analyze the agent codebase to:
-1. Understand environment and dependencies
-2. Find all TOOLS - functions that interact with external environment (filesystem, web, bash, APIs, database, etc.)
-3. Analyze dataflow for each tool
-4. Identify security vulnerabilities
-
-=== TOOLS ===
-
-File Operations: ls(), glob(), grep(), read() - explore and read codebase
-Todo Management: todo_read(), todo_write() - track analysis progress
-Analysis Writers:
-  - create_analysis_json() - initialize analysis file (call first)
-  - write_environment() - write environment info
-  - write_dependencies() - write dependency list
-  - write_tool_info() - write/update tool description and functionality
-  - write_dataflow() - write/update data flow analysis
-  - write_vulnerabilities() - write/update security findings
-  - write_final_report() - finalize report (call when done)
+Analyze the agent codebase to identify prompt injection vulnerabilities by:
+1. Understanding environment and dependencies
+2. Finding all TOOLS - functions that interact with external environment (filesystem, web, bash, APIs, database, etc.)
+3. Analyzing dataflow for each tool
+4. Identifying security vulnerabilities related to prompt injection
 
 === WORKFLOW ===
 
-1. INITIALIZE: create_analysis_json(json_path) - json_path is provided in user message
-2. ENVIRONMENT: Explore codebase, then write_environment() and write_dependencies()
-3. FIND TOOLS: Search for tools that interact with external environment
-   - Look for: file read/write, bash/shell execution, web requests, API calls, database operations and other similar types
-4. FOR EACH TOOL:
-   a) Read and understand the tool code
-   b) write_tool_info() - document tool name, position, description, parameters
-   c) write_dataflow() - analyze data sources, destinations, transformations
-   d) write_vulnerabilities() - if vulnerabilities found
-5. FINALIZE: write_final_report() when analysis is complete
+1. **INITIALIZE**: Call create_analysis_json("{json_path}")
+
+2. **ENVIRONMENT**: Explore codebase structure
+   - Use ls(), glob() to understand project layout
+   - Identify entry points, config files, dependencies
+   - Call write_environment() and write_dependencies()
+
+3. **FIND TOOLS**: Search for agent tools that interact with external environment
+   - Look for: file read/write, bash/shell execution, web requests, API calls, database operations
+   - Identify tools that could be exploited via prompt injection
+
+4. **FOR EACH TOOL FOUND**:
+   a) Read and understand the tool code thoroughly
+   b) Call write_tool_info() - document tool name, position, description, parameters
+   c) Call write_dataflow() - analyze data sources, destinations, transformations
+   d) Call write_vulnerabilities() - if vulnerabilities found
+
+5. **FINALIZE**: Call write_final_report() when analysis is complete
 
 === CRITICAL VULNERABILITIES TO IDENTIFY ===
 
 Focus on these two attack patterns:
 
 1. **Untrusted Data → LLM Context/Decision**
-   - External/untrusted data (web content, file content, user input, API responses) flows into LLM prompt or context
+   - External/untrusted data (web content, file content, user input, API responses) flows into LLM prompt
    - This enables indirect prompt injection attacks
    - Example: web_search results directly concatenated into prompt
 
 2. **LLM Output → Sensitive Tool Execution**
    - LLM decisions/outputs are passed to dangerous tools without validation
-   - This enables Remote Code Execution (RCE), data exfiltration, etc.
+   - This enables RCE, data exfiltration, etc.
    - Example: LLM output used as bash command argument, file path, or API parameter
 
-When you find such vulnerabilities, document them with write_vulnerabilities() including:
+Document vulnerabilities with:
 - Vulnerability type, severity, attack scenario
 - End-to-end impact (what an attacker can achieve)
 - Evidence from code/dataflow
 
-=== RULES ===
-
-- All write_* functions support overwriting - call them again to update findings
-- Keep analyzing until you have thoroughly examined all tools
-- Call write_final_report() ONLY when analysis is complete
+=== BEGIN ===
+Start by calling create_analysis_json("{json_path}")
 """
-        return prompt
+
+    def _build_user_message_traditional(self, json_path: str, max_turns: int) -> str:
+        """Build user message for traditional vulnerability style analysis."""
+        return f"""=== ANALYSIS TARGET ===
+Path: {self.target_path}
+Output JSON: {json_path}
+Max turns: {max_turns}
+Analysis Style: Traditional Security Vulnerabilities
+
+=== TASK ===
+Perform a **traditional security vulnerability assessment** of this codebase (non-AI-specific). The goal is to find vulnerabilities that exist **regardless of any agent/LLM prompt logic**.
+
+This assessment explicitly does **NOT** require:
+- Running or starting any services/agents
+- Analyzing LLM prompt flows, conversation policies, or agent planning logic
+
+This assessment **DOES** require:
+- Careful reading of **as much code as possible**
+- Flexible, multi-pass searching (keywords + regex + data-flow tracing across files)
+- Evidence-based findings with precise locations and actionable fixes
+
+Deliver a report that is **thorough, reproducible, and code-grounded** (avoid generic advice).
+
+---
+
+=== OPERATING PRINCIPLES ===
+1) **Coverage-first, then depth**: start broad (repo map + dependency map), then drill into hotspots (I/O boundaries, network, auth, deserialization, shell/OS interfaces).
+2) **Assume attacker-controlled inputs** at boundaries (HTTP params, CLI args, env vars, config files, files read from disk, IPC, webhook payloads, queue messages).
+3) **Trace taint**: follow input → transformation → sink (e.g., user input → string concat → subprocess).
+4) **Minimize false positives**: only report issues confirmed by code evidence; if uncertain, label as “Potential” with rationale.
+5) **Prefer minimal, safe fixes**: propose the smallest viable patch and safe alternatives.
+
+---
+
+=== REQUIRED WORKFLOW (MANDATORY) ===
+
+1) **INITIALIZE**
+- Call: `create_analysis_json("{json_path}")`
+
+2) **ENVIRONMENT & INVENTORY**
+- Explore repository structure using `ls()` / `glob()`
+- Identify:
+  - Primary languages (Python/JS/Go/etc.)
+  - Frameworks (web frameworks, CLI tools, job runners)
+  - Entry points (main, server, CLI, scripts, CI)
+  - Dangerous subsystems (upload/download, extract, execute, parse)
+- Call:
+  - `write_environment()` (OS assumptions, runtime expectations, execution modes)
+  - `write_dependencies()` (dependency files like requirements.txt, pyproject.toml, package.json, go.mod, etc.)
+
+3) **VULNERABILITY SCANNING (MULTI-PASS)**
+Do at least **three passes**:
+
+**PASS A — Broad Pattern Search**
+- Use `grep()` with many patterns to locate candidate files quickly.
+- Prioritize:
+  - request handlers / API routes / controllers
+  - file read/write utilities
+  - archive extraction utilities
+  - subprocess usage
+  - parsers (yaml/xml/pickle)
+  - authn/authz middleware
+  - config loaders
+  - logging of sensitive values
+
+**PASS B — Sink-Centric Deep Review**
+For each sink category (command execution, deserialization, SQL execution, URL fetch, file write, template render):
+- Open the file and read surrounding context
+- Identify whether any attacker-controlled input can reach the sink
+- Check for safeguards (validation, allowlists, encoding, sandboxing, safe APIs)
+
+**PASS C — Boundary-Centric Review**
+Review every code boundary where external input enters:
+- HTTP endpoints
+- CLI argument parsing
+- environment variables
+- config file loaders
+- file uploads / dataset ingestion
+- webhooks / queue consumers
+- plugins/extensions loading
+Trace what they can affect (paths, commands, URLs, templates, queries).
+
+4) **DOCUMENT FINDINGS (EVIDENCE-DRIVEN)**
+For every confirmed issue, call:
+- `write_vulnerabilities_traditional()`
+
+Each finding **MUST** include:
+- Title + category
+- Severity (Critical/High/Medium/Low) with justification
+- Exact file path + line numbers
+- Minimal code snippet (just enough to prove the issue)
+- Attack scenario (how an attacker supplies input and what they gain)
+- Impact (RCE/data leak/priv escalation/etc.)
+- Preconditions/assumptions
+- Concrete remediation:
+  - preferred fix (minimal change)
+  - defense-in-depth improvements
+- If applicable: secure-by-default alternative APIs
+
+Also include:
+- **“Not a vuln / mitigated” notes** when a suspicious pattern is actually safe (to show careful review).
+
+5) **FINALIZE**
+- Call: `write_final_report()` after completing scanning and documenting issues.
+The final report should summarize:
+- Repo overview & risk hotspots
+- Findings by severity (Critical → Low)
+- Cross-cutting themes (input validation gaps, dangerous defaults)
+- Quick wins vs. longer-term refactors
+
+---
+
+=== VULNERABILITY CATEGORIES (EXPAND BEYOND THE LIST) ===
+You must scan at least the following (and any others you discover):
+
+1) **Remote Code Execution (RCE) / Command Injection** (Critical)
+- Sinks: `eval`, `exec`, `compile`, `pickle` gadgets, dynamic imports, `subprocess.*`, `os.system`, `popen`, `shell=True`
+- Also check: unsafe format strings in shell commands; use of `shlex` incorrectly; user input in command args
+
+2) **Injection (SQL / NoSQL / Template / LDAP / CLI flags)** (Critical/High)
+- SQL: raw query concatenation; missing parameterization; ORM raw fragments
+- NoSQL: query object injection; `$where`-like patterns
+- Template: Jinja2/Handlebars/etc. rendering of untrusted content
+- Shell/CLI flag injection: passing user input as flags
+
+3) **Path Traversal / Arbitrary File Read/Write** (High)
+- `open()`, `Path()`, `send_file`, `read_text`, `write_text`, file serving endpoints
+- Look for `../`, absolute paths, symlink following, improper `join` usage
+- Unsafe temp files: predictable names, world-writable dirs
+
+4) **SSRF / Arbitrary URL Fetch** (High)
+- `requests`, `urllib`, `httpx`, `aiohttp`, `fetch`, `curl` wrappers
+- Missing allowlist; no scheme restriction; follows redirects into internal networks
+- Look for access to cloud metadata IPs, localhost, private ranges
+
+5) **Insecure Deserialization** (Critical)
+- `pickle.load/loads`, `yaml.load` (not safe_load), `marshal`, custom object hooks
+- Loading untrusted files, network payloads, or user-supplied blobs
+
+6) **Archive Extraction Vulnerabilities (Zip Slip / Tar Path Traversal)** (High)
+- `zipfile`, `tarfile`, custom extractors
+- Ensure normalized paths and extraction destination checks
+
+7) **Hardcoded Secrets / Sensitive Data Exposure** (High)
+- API keys/tokens/passwords embedded in code or committed configs
+- Secrets in logs, exceptions, debug endpoints
+- Leaky error messages exposing internal paths or stack traces in production
+
+8) **Authentication / Authorization Issues** (High)
+- Missing auth checks on endpoints; broken role checks
+- Confused deputy: trusting headers, trusting client-side flags
+- Weak session handling, insecure JWT validation (alg=none, missing audience/issuer)
+
+9) **Cryptography Misuse** (Medium/High)
+- Hardcoded keys, insecure randomness, weak hashes for passwords
+- Lack of salts, outdated algorithms, DIY crypto
+
+10) **XXE / Unsafe XML Parsing** (High)
+- `lxml`, `xml.etree`, `minidom`, SAX parsers
+- External entity resolution, DTD processing enabled
+
+11) **Insecure Configuration / Debug Features** (Medium)
+- `DEBUG=True`, permissive CORS, missing security headers
+- Dev endpoints enabled in production; default admin credentials
+
+12) **Dependency / Supply Chain Risks** (Medium/High)
+- Unpinned dependencies, `pip install` from git HEAD, `curl | bash` installs
+- Post-install scripts, suspicious CI steps, downloading executables at build time
+
+13) **Race Conditions / Concurrency Bugs leading to Security Issues** (Medium)
+- TOCTOU on file operations; lock-free temp file creation
+
+
+=== STRONG SEARCH STRATEGY ===
+Use multiple `grep()` waves:
+
+**Wave 1: High-signal sinks**
+- `eval(`, `exec(`, `compile(`, `importlib.import_module`, `__import__`
+- `subprocess`, `os.system`, `popen`, `shell=True`
+- `pickle.load`, `pickle.loads`, `yaml.load`, `marshal`
+- `zipfile`, `tarfile`, `extractall`, `extract`
+
+**Wave 2: Web/IO boundaries**
+- `@app.route`, `router.`, `FastAPI`, `Flask`, `Django`, `express`, `koa`
+- `request.`, `req.`, `ctx.request`, `body`, `query`, `params`
+- `open(`, `Path(`, `read_text`, `write_text`, `send_file`, `upload`
+
+**Wave 3: Secrets & config**
+- `password`, `passwd`, `secret`, `api_key`, `token`, `credential`, `private_key`
+- `.env`, `dotenv`, `AWS_`, `GCP_`, `AZURE_`
+- `DEBUG`, `CORS`, `localhost`, `0.0.0.0`
+
+**Wave 4: Network fetch & SSRF**
+- `requests.get`, `requests.post`, `urllib`, `httpx`, `aiohttp`, `fetch`
+- `allow_redirects`, `proxies`, `verify=False`
+
+**Wave 5: Auth & session**
+- `auth`, `login`, `jwt`, `session`, `cookie`, `Bearer`, `Authorization`
+- `is_admin`, `role`, `permission`, `acl`
+
+After matches, open the files and confirm whether attacker-controlled data reaches the sink.
+
+---
+
+=== BEGIN ===
+Start by calling create_analysis_json("{json_path}")
+"""
 
     def _build_adk_agent(self) -> LlmAgent:
         """Build Google ADK agent with tools."""
@@ -168,6 +416,7 @@ When you find such vulnerabilities, document them with write_vulnerabilities() i
             FunctionTool(func=write_tool_info),
             FunctionTool(func=write_dataflow),
             FunctionTool(func=write_vulnerabilities),
+            FunctionTool(func=write_vulnerabilities_traditional),
             FunctionTool(func=write_environment),
             FunctionTool(func=write_dependencies),
             FunctionTool(func=write_final_report)
@@ -229,18 +478,15 @@ When you find such vulnerabilities, document them with write_vulnerabilities() i
         timestamp = time.strftime('%Y%m%d_%H%M%S')
         json_path = os.path.join(reports_dir, f"analysis_{path_hash}_{timestamp}.json")
 
-        # Simple user message - details are in system prompt
+        # Build user message based on analysis style
+        if self.style == STYLE_PROMPT_INJECTION:
+            user_message_text = self._build_user_message_prompt_injection(json_path, max_turns)
+        else:  # STYLE_TRADITIONAL
+            user_message_text = self._build_user_message_traditional(json_path, max_turns)
+
         user_message = types.Content(
             role="user",
-            parts=[
-                types.Part(
-                    text=f"""Target: {self.target_path}
-Output JSON: {json_path}
-Max turns: {max_turns}
-
-Begin analysis. First call create_analysis_json("{json_path}")."""
-                )
-            ]
+            parts=[types.Part(text=user_message_text)]
         )
 
         final_response = None
@@ -249,6 +495,7 @@ Begin analysis. First call create_analysis_json("{json_path}")."""
         analysis_data = {
             "session_id": self.session_history["session_id"],
             "target_path": self.target_path,
+            "style": self.style,
             "json_path": json_path,
             "events": [],
             "final_response": None
@@ -258,13 +505,14 @@ Begin analysis. First call create_analysis_json("{json_path}")."""
         log_data = {
             "session_id": self.session_history["session_id"],
             "target_path": self.target_path,
+            "style": self.style,
             "json_path": json_path,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "tool_calls": []
         }
 
         try:
-            logger.info("Starting agent execution...")
+            logger.info(f"Starting agent execution (style: {self.style})...")
             for event in runner.run(
                 user_id="analyst",
                 session_id="default",

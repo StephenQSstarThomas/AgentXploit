@@ -68,7 +68,8 @@ def create_analysis_json(json_path: str) -> dict:
             "status": "in_progress",
             "environment": {},
             "dependencies": [],
-            "tools": []
+            "tools": [],
+            "traditional_vulnerabilities": {}
         }
 
         _save_json(json_path, data)
@@ -211,6 +212,64 @@ def write_vulnerabilities(json_path: str, tool_name: str, vulnerabilities: dict)
         return {"success": False, "error": str(e)}
 
 
+def write_vulnerabilities_traditional(json_path: str, vulnerabilities: dict) -> dict:
+    """Write traditional security vulnerabilities (not tool-specific) to the JSON file.
+
+    Use this for traditional security vulnerabilities like RCE, XSS, CSRF, SQL injection,
+    path traversal, SSRF, etc. that don't require agent/tool context analysis.
+
+    Supports overwriting: existing traditional_vulnerabilities will be replaced.
+
+    Expected vulnerabilities structure:
+    {
+        "scan_type": "traditional",
+        "vulnerabilities": [
+            {
+                "type": "rce|command_injection|sql_injection|xss|csrf|path_traversal|
+                        ssrf|xxe|insecure_deserialization|hardcoded_secrets|
+                        auth_bypass|insecure_config|other",
+                "severity": "critical|high|medium|low",
+                "title": "Brief vulnerability title",
+                "description": "Detailed description of the vulnerability",
+                "file_path": "path/to/vulnerable/file.py",
+                "line_numbers": [10, 15, 20],
+                "code_snippet": "Relevant code showing the vulnerability",
+                "attack_scenario": "How an attacker could exploit this",
+                "impact": "What damage could result from exploitation",
+                "evidence": "Proof/reasoning why this is vulnerable",
+                "cwe_id": "CWE-XX (if applicable)",
+                "mitigation": "How to fix this vulnerability"
+            }
+        ],
+        "summary": {
+            "total_vulnerabilities": 5,
+            "by_severity": {"critical": 1, "high": 2, "medium": 1, "low": 1},
+            "by_type": {"rce": 1, "sql_injection": 2, "xss": 2},
+            "files_affected": ["file1.py", "file2.py"]
+        },
+        "overall_risk": "critical|high|medium|low|none",
+        "recommendations": ["General recommendation 1", "General recommendation 2"]
+    }
+
+    Args:
+        json_path: Absolute path to the analysis JSON file
+        vulnerabilities: Traditional vulnerabilities dict (overwrites existing if present)
+
+    Returns:
+        dict: {"success": bool, "error": str or None}
+    """
+    try:
+        data = _load_json(json_path)
+        data["traditional_vulnerabilities"] = vulnerabilities
+        _save_json(json_path, data)
+        vuln_count = len(vulnerabilities.get("vulnerabilities", []))
+        logger.info(f"Wrote {vuln_count} traditional vulnerabilities")
+        return {"success": True, "error": None}
+    except Exception as e:
+        logger.error(f"Failed to write traditional vulnerabilities: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
 def write_environment(json_path: str, environment: dict) -> dict:
     """Write or update environment information to the JSON file.
 
@@ -275,7 +334,9 @@ def write_final_report(json_path: str) -> dict:
 
     The function will:
     1. Mark analysis status as "completed"
-    2. Generate vulnerability summary (counts by severity)
+    2. Generate vulnerability summary (counts by severity) for both:
+       - Tool-based vulnerabilities (prompt injection style)
+       - Traditional vulnerabilities (RCE, XSS, etc.)
     3. Calculate overall risk level
     4. Save the final report
 
@@ -290,7 +351,9 @@ def write_final_report(json_path: str) -> dict:
             "summary": {
                 "tools_analyzed": int,
                 "tools_with_vulnerabilities": int,
-                "vulnerability_counts": {"critical": N, "high": N, "medium": N, "low": N},
+                "tool_vulnerability_counts": {"critical": N, "high": N, "medium": N, "low": N},
+                "traditional_vulnerability_counts": {"critical": N, "high": N, "medium": N, "low": N},
+                "total_vulnerability_counts": {"critical": N, "high": N, "medium": N, "low": N},
                 "overall_risk": "critical|high|medium|low|none"
             }
         }
@@ -301,9 +364,9 @@ def write_final_report(json_path: str) -> dict:
         # Mark as completed
         data["status"] = "completed"
 
-        # Count tools and vulnerabilities
+        # Count tool-based vulnerabilities (prompt injection style)
         tools = data.get("tools", [])
-        vuln_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        tool_vuln_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         tools_with_vulns = 0
 
         for tool in tools:
@@ -312,17 +375,34 @@ def write_final_report(json_path: str) -> dict:
                 tools_with_vulns += 1
                 for vuln in tool_vulns.get("vulnerabilities", []):
                     severity = vuln.get("severity", "low").lower()
-                    if severity in vuln_counts:
-                        vuln_counts[severity] += 1
+                    if severity in tool_vuln_counts:
+                        tool_vuln_counts[severity] += 1
 
-        # Determine overall risk
-        if vuln_counts["critical"] > 0:
+        # Count traditional vulnerabilities
+        trad_vuln_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        trad_vulns = data.get("traditional_vulnerabilities", {})
+        if trad_vulns:
+            for vuln in trad_vulns.get("vulnerabilities", []):
+                severity = vuln.get("severity", "low").lower()
+                if severity in trad_vuln_counts:
+                    trad_vuln_counts[severity] += 1
+
+        # Calculate total vulnerability counts
+        total_vuln_counts = {
+            "critical": tool_vuln_counts["critical"] + trad_vuln_counts["critical"],
+            "high": tool_vuln_counts["high"] + trad_vuln_counts["high"],
+            "medium": tool_vuln_counts["medium"] + trad_vuln_counts["medium"],
+            "low": tool_vuln_counts["low"] + trad_vuln_counts["low"]
+        }
+
+        # Determine overall risk based on total counts
+        if total_vuln_counts["critical"] > 0:
             overall_risk = "critical"
-        elif vuln_counts["high"] > 0:
+        elif total_vuln_counts["high"] > 0:
             overall_risk = "high"
-        elif vuln_counts["medium"] > 0:
+        elif total_vuln_counts["medium"] > 0:
             overall_risk = "medium"
-        elif sum(vuln_counts.values()) > 0:
+        elif sum(total_vuln_counts.values()) > 0:
             overall_risk = "low"
         else:
             overall_risk = "none"
@@ -331,7 +411,9 @@ def write_final_report(json_path: str) -> dict:
         summary = {
             "tools_analyzed": len(tools),
             "tools_with_vulnerabilities": tools_with_vulns,
-            "vulnerability_counts": vuln_counts,
+            "tool_vulnerability_counts": tool_vuln_counts,
+            "traditional_vulnerability_counts": trad_vuln_counts,
+            "total_vulnerability_counts": total_vuln_counts,
             "overall_risk": overall_risk
         }
 
@@ -358,6 +440,7 @@ __all__ = [
     "write_tool_info",
     "write_dataflow",
     "write_vulnerabilities",
+    "write_vulnerabilities_traditional",
     "write_environment",
     "write_dependencies",
     "write_final_report"

@@ -7,6 +7,7 @@ from .analysis_writer import (
     write_tool_info,
     write_dataflow,
     write_vulnerabilities,
+    write_vulnerabilities_traditional,
     write_environment,
     write_dependencies,
     write_final_report
@@ -23,6 +24,7 @@ __all__ = [
     "write_tool_info",
     "write_dataflow",
     "write_vulnerabilities",
+    "write_vulnerabilities_traditional",
     "write_environment",
     "write_dependencies",
     "write_final_report"
