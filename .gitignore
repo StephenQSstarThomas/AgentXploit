@@ -31,3 +31,4 @@ venv/
 ENV/
 .idea/
 .vscode/
+/src/exploiter_agent/codex_reports/cve-2024-10986-lfi-tarslip_codex_output.json
