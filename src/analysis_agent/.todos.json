@@ -1,31 +1,25 @@
 [
   {
-    "id": "init_env",
-    "content": "Survey repository and identify environment, entry points, dependencies",
+    "id": "env_dep",
+    "content": "Survey project structure, identify environment, entry points, dependencies",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "pass_a",
-    "content": "Perform broad pattern search for high-risk sinks",
+    "id": "tool_ident",
+    "content": "Discover and document all agent tools interacting with external environment",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "pass_b",
-    "content": "Deep review around identified sinks for exploitability",
+    "id": "tool_analysis",
+    "content": "Analyze dataflow and security vulnerabilities for each identified tool",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "pass_c",
-    "content": "Trace inputs at boundaries (CLI/env/config) for vulnerabilities",
-    "status": "completed",
-    "priority": "high"
-  },
-  {
-    "id": "report",
-    "content": "Document confirmed traditional vulnerabilities and finalize report",
+    "id": "final_report",
+    "content": "Produce final prompt-injection security report",
     "status": "completed",
     "priority": "medium"
   }

