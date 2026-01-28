@@ -32,3 +32,7 @@ ENV/
 .idea/
 .vscode/
 /src/exploiter_agent/codex_reports/cve-2024-10986-lfi-tarslip_codex_output.json
+
+# Ignore analysis reports that may contain sensitive data (API keys in logs)
+src/analysis_agent/reports/log_*.json
+src/analysis_agent/reports/selected/

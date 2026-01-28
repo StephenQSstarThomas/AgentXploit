@@ -12,7 +12,11 @@
       "Bash(timeout 180 python3:*)",
       "Bash(conda run:*)",
       "WebSearch",
-      "WebFetch(domain:towardsdatascience.com)"
+      "WebFetch(domain:towardsdatascience.com)",
+      "Bash(for dir in /home/shiqiu/Anewbenchmark/autogpt-security-bench/tasks/task-*/)",
+      "Bash(do echo '=== $\\(basename $dir\\) ===' if [ -f $dir/task_config.json ])",
+      "Bash(then jq -r '{cve: .vulnerability.cve, type: .vulnerability.type, severity: .vulnerability.severity, summary: .vulnerability.summary, detail: .objective.vulnerability_detail}' $dir/task_config.json 2)",
+      "Bash(/dev/null else cat $dir/README.md)"
     ],
     "deny": [],
     "ask": []

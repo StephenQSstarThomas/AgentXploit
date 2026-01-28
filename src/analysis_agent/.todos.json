@@ -1,26 +1,20 @@
 [
   {
-    "id": "env_dep",
-    "content": "Survey project structure, identify environment, entry points, dependencies",
+    "id": "env",
+    "content": "Inventory environment, dependencies, and repo structure for /home/shiqiu/gpt_academic-3.83",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "tool_ident",
-    "content": "Discover and document all agent tools interacting with external environment",
+    "id": "scan",
+    "content": "Perform multi-pass traditional security vulnerability assessment (pattern search, sink review, boundary review)",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "tool_analysis",
-    "content": "Analyze dataflow and security vulnerabilities for each identified tool",
+    "id": "report",
+    "content": "Document confirmed vulnerabilities and finalize report",
     "status": "completed",
     "priority": "high"
-  },
-  {
-    "id": "final_report",
-    "content": "Produce final prompt-injection security report",
-    "status": "completed",
-    "priority": "medium"
   }
 ]

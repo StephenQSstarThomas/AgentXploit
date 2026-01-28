@@ -194,7 +194,7 @@ Max turns: {max_turns}
 Analysis Style: Traditional Security Vulnerabilities
 
 === TASK ===
-Perform a **traditional security vulnerability assessment** of this codebase (non-AI-specific). The goal is to find vulnerabilities that exist **regardless of any agent/LLM prompt logic**.
+Perform a **traditional security vulnerability assessment** of this codebase (non-AI-specific). The goal is to find vulnerabilities that exist **regardless of any agent/LLM prompt logic**, AS MANY AS POSSIBLE.
 
 This assessment explicitly does **NOT** require:
 - Running or starting any services/agents
