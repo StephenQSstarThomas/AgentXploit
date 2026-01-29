@@ -7,9 +7,9 @@ set -euo pipefail
 # ============================================
 # CONFIGURATION - MODIFY THESE VARIABLES
 # ============================================
-TARGET_PATH="/home/shiqiu/gpt_academic-3.91"  # Path to the target codebase to analyze (e.g., /path/to/agent-repo)
+TARGET_PATH="/home/shiqiu/Anewbenchmark/AutoGPT_0.4.2"  # Path to the target codebase to analyze (e.g., /path/to/agent-repo)
 OUTPUT_DIR="${OUTPUT_DIR:-/home/shiqiu/AgentXploit/src/analysis_agent/codex_part/reports}"
-ANALYSIS_STYLE="${ANALYSIS_STYLE:-traditional}"  # Options: traditional, prompt_injection
+ANALYSIS_STYLE="${ANALYSIS_STYLE:-prompt_injection}"  # Options: traditional, prompt_injection
 
 # Fixed API Configuration
 export OPENAI_API_KEY="sk-Eav7rsFEDl480mnJwGL-4g"

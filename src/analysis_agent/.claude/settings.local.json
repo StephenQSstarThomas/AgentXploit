@@ -16,7 +16,9 @@
       "Bash(for dir in /home/shiqiu/Anewbenchmark/autogpt-security-bench/tasks/task-*/)",
       "Bash(do echo '=== $\\(basename $dir\\) ===' if [ -f $dir/task_config.json ])",
       "Bash(then jq -r '{cve: .vulnerability.cve, type: .vulnerability.type, severity: .vulnerability.severity, summary: .vulnerability.summary, detail: .objective.vulnerability_detail}' $dir/task_config.json 2)",
-      "Bash(/dev/null else cat $dir/README.md)"
+      "Bash(/dev/null else cat $dir/README.md)",
+      "Bash(ls:*)",
+      "Bash(/home/shiqiu/AgentXploit/src/analysis_agent/codex_part/run_codex_for_exploit.sh)"
     ],
     "deny": [],
     "ask": []

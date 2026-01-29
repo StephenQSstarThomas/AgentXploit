@@ -1,20 +1,26 @@
 [
   {
     "id": "env",
-    "content": "Inventory environment, dependencies, and repo structure for /home/shiqiu/gpt_academic-3.83",
+    "content": "Survey AutoGPT_0.4.2 environment, entry points, dependencies",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "scan",
-    "content": "Perform multi-pass traditional security vulnerability assessment (pattern search, sink review, boundary review)",
+    "id": "tools",
+    "content": "Identify all agent tools interacting with external environment",
     "status": "completed",
     "priority": "high"
   },
   {
-    "id": "report",
-    "content": "Document confirmed vulnerabilities and finalize report",
-    "status": "completed",
+    "id": "analysis",
+    "content": "Trace tool dataflows and document prompt-injection vulnerabilities (>=8)",
+    "status": "in_progress",
     "priority": "high"
+  },
+  {
+    "id": "final",
+    "content": "Summarize findings and finalize security report",
+    "status": "pending",
+    "priority": "medium"
   }
 ]

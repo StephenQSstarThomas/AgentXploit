@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "target_path": "/home/shiqiu/agentscope-0.0.4",
+    "target_name": "agentscope-0.0.4",
+    "analysis_timestamp": "20260128_001618",
+    "analysis_style": "traditional",
+    "generated_at": "2026-01-28T00:20:04.326621"
+  },
+  "summary": {
+    "total_vulnerabilities": 8,
+    "critical": 3,
+    "high": 2,
+    "medium": 3,
+    "low": 0
+  },
+  "vulnerabilities": [
+    {
+      "type": "Remote Code Execution (RCE)",
+      "severity": "Critical",
+      "keyword_match": "remote code execution",
+      "details": "Potential Remote Code Execution (RCE) detected based on keyword analysis"
+    },
+    {
+      "type": "SQL Injection",
+      "severity": "Critical",
+      "keyword_match": "sqli",
+      "details": "Potential SQL Injection detected based on keyword analysis"
+    },
+    {
+      "type": "Path Traversal",
+      "severity": "High",
+      "keyword_match": "path traversal",
+      "details": "Potential Path Traversal detected based on keyword analysis"
+    },
+    {
+      "type": "Server-Side Request Forgery (SSRF)",
+      "severity": "High",
+      "keyword_match": "ssrf",
+      "details": "Potential Server-Side Request Forgery (SSRF) detected based on keyword analysis"
+    },
+    {
+      "type": "Insecure Deserialization",
+      "severity": "Critical",
+      "keyword_match": "pickle",
+      "details": "Potential Insecure Deserialization detected based on keyword analysis"
+    },
+    {
+      "type": "Hardcoded Credentials",
+      "severity": "Medium",
+      "keyword_match": "password",
+      "details": "Potential Hardcoded Credentials detected based on keyword analysis"
+    },
+    {
+      "type": "Arbitrary File Write",
+      "severity": "Medium",
+      "keyword_match": "arbitrary file",
+      "details": "Potential Arbitrary File Write detected based on keyword analysis"
+    },
+    {
+      "type": "Arbitrary File Read",
+      "severity": "Medium",
+      "keyword_match": "file read",
+      "details": "Potential Arbitrary File Read detected based on keyword analysis"
+    }
+  ]
+}

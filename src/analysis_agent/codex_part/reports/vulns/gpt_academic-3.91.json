@@ -1,0 +1,60 @@
+{
+  "metadata": {
+    "target_path": "/home/shiqiu/gpt_academic-3.91",
+    "target_name": "gpt_academic-3.91",
+    "analysis_timestamp": "20260128_000018",
+    "analysis_style": "traditional",
+    "generated_at": "2026-01-28T00:02:34.298579"
+  },
+  "summary": {
+    "total_vulnerabilities": 7,
+    "critical": 3,
+    "high": 1,
+    "medium": 3,
+    "low": 0
+  },
+  "vulnerabilities": [
+    {
+      "type": "Remote Code Execution (RCE)",
+      "severity": "Critical",
+      "keyword_match": "remote code execution",
+      "details": "Potential Remote Code Execution (RCE) detected based on keyword analysis"
+    },
+    {
+      "type": "SQL Injection",
+      "severity": "Critical",
+      "keyword_match": "sqli",
+      "details": "Potential SQL Injection detected based on keyword analysis"
+    },
+    {
+      "type": "Path Traversal",
+      "severity": "High",
+      "keyword_match": "path traversal",
+      "details": "Potential Path Traversal detected based on keyword analysis"
+    },
+    {
+      "type": "Insecure Deserialization",
+      "severity": "Critical",
+      "keyword_match": "pickle",
+      "details": "Potential Insecure Deserialization detected based on keyword analysis"
+    },
+    {
+      "type": "Hardcoded Credentials",
+      "severity": "Medium",
+      "keyword_match": "api_key",
+      "details": "Potential Hardcoded Credentials detected based on keyword analysis"
+    },
+    {
+      "type": "Arbitrary File Write",
+      "severity": "Medium",
+      "keyword_match": "file write",
+      "details": "Potential Arbitrary File Write detected based on keyword analysis"
+    },
+    {
+      "type": "Arbitrary File Read",
+      "severity": "Medium",
+      "keyword_match": "file read",
+      "details": "Potential Arbitrary File Read detected based on keyword analysis"
+    }
+  ]
+}
