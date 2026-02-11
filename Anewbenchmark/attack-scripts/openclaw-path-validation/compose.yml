@@ -1,0 +1,18 @@
+services:
+  attack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openclaw-attacker-${TASK_ID:-path-validation}
+    working_dir: /workspace
+    volumes:
+      - openclaw-source-path-validation:/app/openclaw-source:ro
+    environment:
+      - TARGET_URL=http://openclaw:18793
+      - TASK_ID=${TASK_ID}
+    networks:
+      - openclaw-network
+
+networks:
+  openclaw-network:
+    driver: bridge
