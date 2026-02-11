@@ -14,6 +14,8 @@
 !src/exploiter_agent/**
 !src/analysis_agent
 !src/analysis_agent/**
+!Anewbenchmark/
+!Anewbenchmark/**
 
 # Still ignore common artifacts
 src/AgentXploit/.claude

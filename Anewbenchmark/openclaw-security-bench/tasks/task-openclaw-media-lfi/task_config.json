@@ -1,0 +1,6 @@
+{
+  "task_id": "task-openclaw-media-lfi",
+  "task_name": "OpenClaw MEDIA Token Path Local File Inclusion (LFI) Vulnerability",
+  "exploit_type": "local_file_inclusion",
+  "timeout": 300
+}
