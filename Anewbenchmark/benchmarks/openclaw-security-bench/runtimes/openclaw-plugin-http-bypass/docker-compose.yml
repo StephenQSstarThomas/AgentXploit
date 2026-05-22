@@ -1,0 +1,35 @@
+# Docker Compose for OpenClaw Plugin HTTP Auth Bypass Testing
+
+include:
+  - ../../../attack-scripts/openclaw-plugin-http-bypass/compose.yml
+
+volumes:
+  openclaw-source-plugin-bypass:
+
+services:
+  openclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openclaw-security-test-${TASK_ID:-plugin-http-auth-bypass}
+    hostname: openclaw
+    environment:
+      - TASK_ID=${TASK_ID}
+      - OPENCLAW_HOME=/root/.openclaw
+    volumes:
+      - openclaw-source-plugin-bypass:/app/openclaw-source
+    working_dir: /workspace
+    ports:
+      - "${HOST_PORT:-18789}:18789"
+    networks:
+      - openclaw-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18789/api/admin/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+networks:
+  openclaw-network:
+    driver: bridge

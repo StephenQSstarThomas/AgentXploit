@@ -1,0 +1,969 @@
+{
+  "session_id": "b1ab79ab-df7c-4cfc-888a-cd042eda2f7b",
+  "target_path": "/home/liangwd/AgentXploit/openclaw",
+  "style": "traditional",
+  "json_path": "/home/liangwd/AgentXploit/src/analysis_agent/reports/analysis_7327_20260224_132125.json",
+  "events": [
+    {
+      "type": "tool_call",
+      "tool": "create_analysis_json",
+      "timestamp": 1771910490.6545115
+    },
+    {
+      "type": "tool_response",
+      "tool": "create_analysis_json",
+      "timestamp": 1771910490.6560378
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771910493.609905
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771910493.6112823
+    },
+    {
+      "type": "tool_call",
+      "tool": "ls",
+      "timestamp": 1771910495.8515797
+    },
+    {
+      "type": "tool_response",
+      "tool": "ls",
+      "timestamp": 1771910495.8550627
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910501.250355
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910501.2525244
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910503.1585631
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910503.16014
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771910505.6004941
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771910505.6020572
+    },
+    {
+      "type": "tool_call",
+      "tool": "write_environment",
+      "timestamp": 1771910510.9415042
+    },
+    {
+      "type": "tool_response",
+      "tool": "write_environment",
+      "timestamp": 1771910510.9433227
+    },
+    {
+      "type": "tool_call",
+      "tool": "write_dependencies",
+      "timestamp": 1771910516.086255
+    },
+    {
+      "type": "tool_response",
+      "tool": "write_dependencies",
+      "timestamp": 1771910516.0885646
+    },
+    {
+      "type": "tool_call",
+      "tool": "write_dependencies",
+      "timestamp": 1771910521.0542996
+    },
+    {
+      "type": "tool_response",
+      "tool": "write_dependencies",
+      "timestamp": 1771910521.056213
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771910523.5316718
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771910523.5334105
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771910528.5134988
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771910528.5153441
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910530.2332237
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910530.2533689
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910535.3863616
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910535.4049864
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910540.1960425
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910540.2155612
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910545.289267
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910545.291317
+    },
+    {
+      "type": "tool_call",
+      "tool": "glob",
+      "timestamp": 1771910550.0514488
+    },
+    {
+      "type": "tool_response",
+      "tool": "glob",
+      "timestamp": 1771910550.0544014
+    },
+    {
+      "type": "tool_call",
+      "tool": "glob",
+      "timestamp": 1771910551.7142446
+    },
+    {
+      "type": "tool_response",
+      "tool": "glob",
+      "timestamp": 1771910551.9280043
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910561.6067755
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910561.6285589
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910565.4159951
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910565.436713
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910573.5838292
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910573.6044312
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_read",
+      "timestamp": 1771910581.001782
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_read",
+      "timestamp": 1771910581.0055494
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910588.5853548
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910588.6064918
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910594.4775152
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910594.4988487
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910597.4940848
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910597.5155423
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910602.9666655
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910602.9884148
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910609.5355139
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910609.539715
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910615.8454316
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910615.8666422
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910622.1114547
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910622.1328046
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910624.6780508
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910624.6985867
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910630.5529096
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910630.5572066
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910632.8296218
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910632.8340101
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910638.3911722
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910638.6649592
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910643.397363
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910643.4190032
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910649.3843794
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910649.4056795
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910652.6131947
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910652.6178436
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910658.0619266
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910658.0666382
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910662.0720253
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910662.0935726
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910667.9270973
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910667.9492815
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910675.7185385
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910675.9193544
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910683.2932887
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910683.298641
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910690.980708
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910690.9860122
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910698.5893142
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910698.594706
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910702.756776
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910702.7618237
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910708.575586
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910708.5808814
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910721.7361279
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910721.7415836
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910725.7845678
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910725.7900224
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910742.8166153
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910742.8220963
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910748.9062612
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910748.912011
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_read",
+      "timestamp": 1771910754.62476
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_read",
+      "timestamp": 1771910754.630229
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910769.8829656
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910769.9061975
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910776.082832
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910776.0884132
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910783.3575854
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910783.3800454
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910787.3604574
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910787.3694723
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910790.5197675
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910790.5253868
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910812.5606377
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910812.5841022
+    },
+    {
+      "type": "tool_call",
+      "tool": "glob",
+      "timestamp": 1771910815.637257
+    },
+    {
+      "type": "tool_response",
+      "tool": "glob",
+      "timestamp": 1771910815.665723
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910818.9256492
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910818.931191
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910822.855362
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910822.8609662
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910826.4640286
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910826.4693966
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910837.8974388
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910837.90292
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910840.6859257
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910840.692514
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910845.8257892
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910845.8313468
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910848.772441
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910848.7780669
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910851.9073036
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910851.9130433
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771910855.4548936
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771910855.4605474
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910863.9389875
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910863.9447436
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910871.7132215
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910871.718682
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771910874.3765404
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771910874.386526
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910879.0713894
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910879.0767689
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910882.2671661
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910882.272671
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910891.5987523
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910891.6046515
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910895.5659673
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910895.5715787
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910908.011912
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910908.0176637
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910912.342529
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910912.3480203
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910915.4954164
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910915.5008996
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910937.2973995
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910937.3028798
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910979.0409439
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910979.0465593
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910984.2870548
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910984.2925777
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910987.7196484
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910987.7251368
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771910991.4102767
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771910991.4158971
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911006.88257
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911006.8881948
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911021.0575156
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911021.0630472
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911025.3382764
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911025.3454418
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911028.717542
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911028.7230644
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911032.8747056
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911032.8802958
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911037.2632654
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911037.2689106
+    },
+    {
+      "type": "tool_call",
+      "tool": "grep",
+      "timestamp": 1771911073.4164972
+    },
+    {
+      "type": "tool_response",
+      "tool": "grep",
+      "timestamp": 1771911073.4868777
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911077.2349732
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911077.2404995
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771911081.7653737
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771911081.7709448
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771911086.9978602
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771911087.0034475
+    },
+    {
+      "type": "tool_call",
+      "tool": "write_vulnerabilities_traditional",
+      "timestamp": 1771911116.9813197
+    },
+    {
+      "type": "tool_response",
+      "tool": "write_vulnerabilities_traditional",
+      "timestamp": 1771911116.9873197
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771911122.5120394
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771911122.5176187
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_read",
+      "timestamp": 1771911126.7217815
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_read",
+      "timestamp": 1771911126.727255
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771911131.627215
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771911131.6328022
+    },
+    {
+      "type": "tool_call",
+      "tool": "write_final_report",
+      "timestamp": 1771911135.271828
+    },
+    {
+      "type": "tool_response",
+      "tool": "write_final_report",
+      "timestamp": 1771911135.2779067
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_write",
+      "timestamp": 1771911139.6048286
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_write",
+      "timestamp": 1771911139.6104145
+    }
+  ],
+  "final_response": "Summary of findings and recommendations:\n\n1. **Telnyx signature bypass risk (medium).** Validation in `extensions/voice-call/src/config.ts` lets operators set `skipSignatureVerification=true`, which suppresses the requirement for `telnyx.publicKey`. As a result, Telnyx can run with webhook signature verification fully disabled while still accepting real traffic. Fix: refuse to start when mandatory signature materials are missing, eliminate \u201cskip\u201d flags in production, or gate them behind an explicit developer-only mode so unauthenticated webhooks can\u2019t spoof calls.\n\n2. **Inbound/notify voice calls lack caller verification (medium).** Inbound policy handling (`allowlist`/`open`) trusts only caller ID normalized via `extensions/voice-call/src/allowlist.ts`. Notify-mode responses are auto-spoken and auto-hung up without any challenge (see `manager/outbound.ts`). An attacker spoofing caller ID can repeatedly trigger sensitive notifications or agent actions. Fix: add PIN/DTMF verification, STIR/SHAKEN checks, and rate limiting before running notify mode.\n\n3. **Voice-call transcript logs world-readable (low).** Call logs go to `~/.openclaw/voice-calls/calls.jsonl` via `manager/store.ts` with default permissions. On shared hosts other users can read transcripts. Fix: mkdir/log files with 0700/0600 perms and document secure storage requirements.\n\nA final report has been written to `/home/liangwd/AgentXploit/src/analysis_agent/reports/analysis_7327_20260224_132125.json` summarizing overall medium risk."
+}

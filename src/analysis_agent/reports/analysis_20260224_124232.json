@@ -1,0 +1,79 @@
+{
+  "session_id": "b1b978ca-5a22-4351-8dbe-9f900037425b",
+  "target_path": "/home/liangwd/AgentXploit/Anewbenchmark/openclaw-security-bench/tasks/task-openclaw-browser-file-upload",
+  "style": "prompt_injection",
+  "json_path": "/home/liangwd/AgentXploit/src/analysis_agent/reports/analysis_396_20260224_124210.json",
+  "events": [
+    {
+      "type": "tool_call",
+      "tool": "create_analysis_json",
+      "timestamp": 1771908135.845103
+    },
+    {
+      "type": "tool_response",
+      "tool": "create_analysis_json",
+      "timestamp": 1771908135.846664
+    },
+    {
+      "type": "tool_call",
+      "tool": "todo_read",
+      "timestamp": 1771908137.1401896
+    },
+    {
+      "type": "tool_response",
+      "tool": "todo_read",
+      "timestamp": 1771908137.1414168
+    },
+    {
+      "type": "tool_call",
+      "tool": "ls",
+      "timestamp": 1771908139.8619356
+    },
+    {
+      "type": "tool_response",
+      "tool": "ls",
+      "timestamp": 1771908139.8635535
+    },
+    {
+      "type": "tool_call",
+      "tool": "ls",
+      "timestamp": 1771908142.0953124
+    },
+    {
+      "type": "tool_response",
+      "tool": "ls",
+      "timestamp": 1771908142.0972106
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771908143.6391559
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771908143.640657
+    },
+    {
+      "type": "tool_call",
+      "tool": "read",
+      "timestamp": 1771908145.035916
+    },
+    {
+      "type": "tool_response",
+      "tool": "read",
+      "timestamp": 1771908145.0376952
+    },
+    {
+      "type": "tool_call",
+      "tool": "glob",
+      "timestamp": 1771908147.885223
+    },
+    {
+      "type": "tool_response",
+      "tool": "glob",
+      "timestamp": 1771908148.7226174
+    }
+  ],
+  "final_response": null
+}

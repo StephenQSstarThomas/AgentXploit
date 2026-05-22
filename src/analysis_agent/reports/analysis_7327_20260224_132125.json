@@ -1,0 +1,141 @@
+{
+  "json_path": "/home/liangwd/AgentXploit/src/analysis_agent/reports/analysis_7327_20260224_132125.json",
+  "created_at": "2026-02-24 13:21:30",
+  "last_updated": "2026-02-24 13:32:15",
+  "status": "completed",
+  "environment": {
+    "framework": "Node.js monorepo (TypeScript/JavaScript). Includes CLI tooling, Express server components, mobile apps (Swift, Android), and scripts. Primarily pnpm-based workspace targeting Node >=22.",
+    "docker_required": false,
+    "entry_points": [
+      "openclaw.mjs (CLI entry)",
+      "scripts/run-node.mjs (gateway, agent, TUI)",
+      "apps/ios",
+      "apps/android"
+    ],
+    "config_files": [
+      "package.json",
+      "pnpm-workspace.yaml",
+      "pnpm-lock.yaml",
+      "pyproject.toml",
+      "tsconfig.json",
+      "docker-compose.yml",
+      "render.yaml",
+      "fly.toml",
+      ".env.example"
+    ]
+  },
+  "dependencies": [
+    "package.json",
+    "pnpm-lock.yaml",
+    "pyproject.toml",
+    "tsconfig.json",
+    "Dockerfile",
+    "docker-compose.yml"
+  ],
+  "tools": [],
+  "traditional_vulnerabilities": {
+    "scan_type": "traditional",
+    "vulnerabilities": [
+      {
+        "type": "insecure_config",
+        "severity": "medium",
+        "title": "Voice-call provider credentials accepted even when signature verification is disabled",
+        "description": "The voice-call plugin treats `skipSignatureVerification=true` as sufficient to skip required provider credentials. For example, in `extensions/voice-call/src/config.ts` lines 432-476 the validator only enforces Telnyx public keys when `skipSignatureVerification` is false. A misconfiguration (or malicious user) can set `skipSignatureVerification=true` and deploy Telnyx without a `publicKey`, disabling webhook signature checks entirely while still using real credentials. This allows unauthenticated callers to inject arbitrary webhook events, impersonate providers, and seize full control of call flows (initiate calls, send transcripts, inject TTS).",
+        "file_path": "extensions/voice-call/src/config.ts",
+        "line_numbers": [
+          432,
+          476
+        ],
+        "code_snippet": "if (config.provider === \"telnyx\") {\n  ...\n  if (!config.skipSignatureVerification && !config.telnyx?.publicKey) {\n    errors.push(\"...telnyx.publicKey is required...\");\n  }\n}\n...\nreturn { valid: errors.length === 0, errors };",
+        "attack_scenario": "An attacker with network access sets `skipSignatureVerification=true` (or convinces an operator to do so) and deploys Telnyx without configuring `telnyx.publicKey`. Because the validator now passes, the gateway starts with signature checks disabled yet still trusts all incoming Telnyx webhooks. The attacker can craft unsigned POSTs to `/voice/webhook`, simulating `call.speech` or `call.ended` events, injecting arbitrary transcripts or hanging up calls. They can also drive `startListening` / `playTts` to run arbitrary agent prompts, potentially leading to account takeover or large model/tool actions.",
+        "impact": "Disabling webhook signature verification lets unauthenticated attackers spoof provider events, leading to unauthorized call control, arbitrary AI responses, tool invocation, and potential data leakage or financial abuse.",
+        "evidence": "Config validation only requires Telnyx `publicKey` when `skipSignatureVerification` is false (config.ts lines 432-447). No other runtime guard prevents running with signature verification disabled, even though the default `VoiceCallConfig` has `skipSignatureVerification=false` (line ~329).",
+        "cwe_id": "CWE-16",
+        "mitigation": "Do not allow `skipSignatureVerification=true` in production builds. Update `validateProviderConfig` to fail when `skipSignatureVerification` is true unless a dedicated development mode flag is set and the environment is explicitly marked non-production. Alternatively, remove the `skipSignatureVerification` option entirely. At runtime, refuse to start providers if signature verification cannot be enforced.",
+        "recommendation": "Reject configs where `skipSignatureVerification` is true unless `NODE_ENV=development` and a CLI flag is passed. Enforce provider credentials and public keys regardless, ensuring signature verification always happens in real deployments."
+      },
+      {
+        "type": "insecure_config",
+        "severity": "medium",
+        "title": "Notify-mode voice calls auto-end without verifying provider identity",
+        "description": "In notify mode, the system uses inline TwiML (`generateNotifyTwiml`) and automatically hangs up calls a few seconds after speaking (`speakInitialMessage` in `extensions/voice-call/src/manager/outbound.ts` lines 229-274). However, inbound policy defaults to `disabled`, and outbound notify mode will hang up even if a malicious party tries to keep the line open. More importantly, inbound policy `open` or `allowlist` rely solely on phone numbers and do not involve any verification or challenge—attackers spoofing caller ID can reach notify-mode handlers and cause arbitrary agent responses.",
+        "file_path": "extensions/voice-call/src/manager/outbound.ts",
+        "line_numbers": [
+          229,
+          274
+        ],
+        "code_snippet": "if (mode === \"notify\") {\n  const delaySec = ctx.config.outbound.notifyHangupDelaySec;\n  setTimeout(async () => {\n    const currentCall = ctx.activeCalls.get(call.callId);\n    if (currentCall && !TerminalStates.has(currentCall.state)) {\n      await endCall(ctx, call.callId);\n    }\n  }, delaySec * 1000);\n}",
+        "attack_scenario": "An attacker spoofs an allowlisted phone number, calls the gateway, and is auto-connected (because inbound policy trusts the number). The system speaks a notify message and then auto-hangups without challenge, enabling the attacker to repeatedly trigger sensitive notifications or multi-factor prompts, potentially draining credits or causing social-engineering vulnerabilities.",
+        "impact": "Lack of strong inbound verification allows caller ID spoofing attacks to trigger automated responses, possibly leaking information or causing the agent to execute actions intended for trusted callers.",
+        "evidence": "Inbound policy default is `disabled`, but if operators switch to `allowlist` or `open`, only normalized phone numbers are checked (see `extensions/voice-call/src/allowlist.ts`). No rate limits or proofs mitigate spoofed caller IDs.",
+        "cwe_id": "CWE-601",
+        "mitigation": "Require additional verification (PIN, DTMF challenge) before engaging notify mode for inbound callers. Rate-limit inbound attempts per caller, and log authentication failures. Consider integrating STIR/SHAKEN or provider-level verified caller information before accepting calls.",
+        "recommendation": "Implement challenge-response for any inbound caller before delivering notify messages, and add guardrails to detect spoofed caller IDs."
+      },
+      {
+        "type": "insecure_config",
+        "severity": "low",
+        "title": "Voice call log path defaults to world-readable directory with no access controls",
+        "description": "Call logs are persisted to `~/.openclaw/voice-calls/calls.jsonl` via `persistCallRecord` (`extensions/voice-call/src/manager/store.ts`). The code simply creates the directory with OS defaults and appends JSON lines using `fs/promises`. No permissions hardening is applied, so on multi-user systems other local users can read the call transcripts (including sensitive messages) by accessing the `.openclaw/voice-calls` directory.",
+        "file_path": "extensions/voice-call/src/manager/store.ts",
+        "line_numbers": [
+          6,
+          94
+        ],
+        "code_snippet": "const logPath = path.join(storePath, \"calls.jsonl\");\nconst line = `${JSON.stringify(call)}\\n`;\nfsp.appendFile(logPath, line).catch(...);\n...\nconst storePath = path.join(os.homedir(), \".openclaw\", \"voice-calls\");\nfs.mkdirSync(storePath, { recursive: true });",
+        "attack_scenario": "On a shared workstation or multi-tenant server, an unprivileged local user reads `~/.openclaw/voice-calls/calls.jsonl` and obtains transcripts of all voice calls (caller numbers, agent responses, conversation content). This bypasses end-to-end privacy expectations and could expose sensitive data such as MFA codes or personal information.",
+        "impact": "Local privilege boundaries are weakened: any user on the machine can steal call logs and transcripts.",
+        "evidence": "`persistCallRecord` writes to the default path without specifying permissions (no `fs.mkdirSync(..., { mode: 0o700 })` or `fs.chmod`). `resolveDefaultStoreBase` (manager.ts lines 20-64) points to `~/.openclaw/voice-calls` but never enforces secure perms.",
+        "cwe_id": "CWE-732",
+        "mitigation": "Create the store directory with restrictive permissions (0700) and use `fs.open` with `mode: 0o600` when writing log files. Document the sensitivity of `calls.jsonl` and ensure it resides in private storage. Provide configuration to direct logs to encrypted or access-controlled locations.",
+        "recommendation": "Modify `resolveDefaultStoreBase` / `persistCallRecord` to ensure directories and log files are created with owner-only permissions. Warn users if the directory is world-readable."
+      }
+    ],
+    "summary": {
+      "total_vulnerabilities": 3,
+      "by_severity": {
+        "critical": 0,
+        "high": 0,
+        "medium": 2,
+        "low": 1
+      },
+      "by_type": {
+        "insecure_config": 3
+      },
+      "files_affected": [
+        "extensions/voice-call/src/config.ts",
+        "extensions/voice-call/src/manager/outbound.ts",
+        "extensions/voice-call/src/manager/store.ts"
+      ]
+    },
+    "overall_risk": "medium",
+    "recommendations": [
+      "Remove or strictly gate skipSignatureVerification and enforce provider public keys for webhook validation.",
+      "Add caller verification/rate-limiting for inbound notify flows before delivering automated responses.",
+      "Lock down file permissions for voice-call transcripts and document secure storage expectations."
+    ]
+  },
+  "final_summary": {
+    "tools_analyzed": 0,
+    "tools_with_vulnerabilities": 0,
+    "tool_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "traditional_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 2,
+      "low": 1
+    },
+    "total_vulnerability_counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 2,
+      "low": 1
+    },
+    "overall_risk": "medium"
+  }
+}
